@@ -1,0 +1,35 @@
+# Example abra data landscape config
+# Copy to ~/.abra/sources.yaml and fill in your actual details
+# For what abra is, see concept-notes.md in the repo root
+# For data format, see binding-format-v0.1.md
+
+scope: your-username
+
+sources:
+  my-notes:
+    path: ~/notes
+    type: meeting-and-call-notes
+    format: txt
+    status: unprocessed
+    notes: "describe filters or special handling here"
+
+  linkedin-contacts:
+    status: not-imported
+    notes: "future source"
+
+sinks:
+  crm:
+    type: odoo
+    url: http://localhost:8069
+    db: odoo_db_name
+    user: admin
+    # api_key: use ODOO_API_KEY env var
+    catcode_field: abra_catcode
+    status: not-ready
+    notes: "CRM for contacts. PII goes here."
+
+  pgvector:
+    type: postgres
+    config: ./impl/pgvector/.env
+    status: ready
+    notes: "Binding store and content blobs. No PII."
