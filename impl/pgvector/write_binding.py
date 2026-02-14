@@ -87,6 +87,64 @@ class AbraWriter:
         cur.close()
         return binding_id
 
+    def register_catcode(self, catcode, parent_catcode, label):
+        """Register a position in the catcode space. Returns catcode."""
+        cur = self.conn.cursor()
+        cur.execute(
+            """INSERT INTO catcode_registry (catcode, parent_catcode, label)
+               VALUES (%s, %s, %s)
+               ON CONFLICT (catcode) DO UPDATE SET label = EXCLUDED.label
+               RETURNING catcode""",
+            (catcode, parent_catcode, label)
+        )
+        result = cur.fetchone()[0]
+        self.conn.commit()
+        cur.close()
+        return result
+
+    def find_catcode(self, prefix):
+        """Find catcodes by prefix. Returns list of (catcode, parent_catcode, label)."""
+        cur = self.conn.cursor()
+        cur.execute(
+            "SELECT catcode, parent_catcode, label FROM catcode_registry WHERE catcode LIKE %s ORDER BY catcode",
+            (f"{prefix}%",)
+        )
+        results = cur.fetchall()
+        cur.close()
+        return results
+
+    def next_catcode(self, parent_catcode):
+        """Get next sequential catcode under a parent. 2-char alphanumeric levels (00-zz)."""
+        cur = self.conn.cursor()
+        parent_len = len(parent_catcode)
+        child_len = parent_len + 2
+        cur.execute(
+            "SELECT catcode FROM catcode_registry WHERE parent_catcode = %s ORDER BY catcode DESC LIMIT 1",
+            (parent_catcode,)
+        )
+        row = cur.fetchone()
+        cur.close()
+        if not row:
+            return parent_catcode + "01"
+        last = row[0][parent_len:child_len]
+        # Increment alphanumeric: 00-09, 0a-0z, 10-19, ... zz
+        chars = "0123456789abcdefghijklmnopqrstuvwxyz"
+        idx = chars.index(last[0]) * 36 + chars.index(last[1]) + 1
+        if idx >= 1296:
+            raise ValueError(f"Catcode space exhausted under {parent_catcode}")
+        return parent_catcode + chars[idx // 36] + chars[idx % 36]
+
+    def delete_catcode(self, catcode):
+        """Delete a catcode and cascade: removes subtree and all referencing bindings/content."""
+        cur = self.conn.cursor()
+        # Remove bindings and content referencing this subtree
+        cur.execute("DELETE FROM bindings WHERE catcode LIKE %s", (f"{catcode}%",))
+        cur.execute("DELETE FROM content WHERE catcode LIKE %s", (f"{catcode}%",))
+        # CASCADE on FK handles subtree in registry
+        cur.execute("DELETE FROM catcode_registry WHERE catcode = %s", (catcode,))
+        self.conn.commit()
+        cur.close()
+
     def find_name(self, scope, name_prefix):
         """Find existing names matching a prefix. Returns list of (name, relationship, target_ref) tuples."""
         cur = self.conn.cursor()

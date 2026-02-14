@@ -41,6 +41,7 @@ Each entry: catcode, parent catcode, canonical label. The label is a description
 - Deleting a catcode cascades: removes its subtree and all bindings/content referencing it
 - Multiple pet names (in different scopes) can point to the same catcode
 - The registry is the primary structure; bindings are secondary
+- Everything needs at least one catcode — a position in space — to exist in the system
 
 ### Top-level allocation
 
@@ -78,15 +79,22 @@ Levels aren't just topic categories. A level can represent a time period (2025),
 
 ### Multiple codes per entity
 
-An entity can have codes in multiple spaces. Leanne has a code in golda's personal hierarchy AND may have a code in the linkedtrust team hierarchy. These are different positions, relatable to each other.
+Catcodes is an array — a name can occupy multiple positions in the space. This is fundamental, not an edge case. Leanne has a code in golda/contacts AND in linkedtrust/contacts. A business might be in both a geographic hierarchy and an industry hierarchy. This was how the original Perl Abra worked.
+
+Two names in different scopes that turn out to be the same real-world entity are linked via a SAME_AS edge when you discover the connection. That's a relationship you create when you know it — not a structural constraint baked in upfront. You may not know right away.
 
 ### Relationship to pet names
 
 Pet names are how you talk. The code is where something sits spatially. A name can bind to a catcode. External systems (e.g. CRM) can carry the catcode as a column, connecting their records into the shared space.
 
-### Processing collections
+### Default placement
 
-When starting to process a collection (e.g. a directory of meeting notes), the agent should guess a category placement for the collection and ask the user before proceeding. E.g. "These look like 2025 meeting notes — place under `usrv00gvzmtg025`?" This sets the parent catcode for items in that collection.
+When importing, the agent prompts for catcode placement and falls back to sensible defaults if nothing chosen:
+- Contacts → `user/contacts/`
+- Dated notes → `user/year/day/`
+- Collections → agent guesses a category and asks before proceeding
+
+E.g. "These look like 2025 meeting notes — place under golda/meetings/2025?" The user can override or accept.
 
 ### Migration from original Abra
 
@@ -113,6 +121,8 @@ One name can have many bindings.
 **ABOUT** — context, notes, what you know. "peter" ABOUT [blob from meeting notes]. Distinct from IS (identity) and HAS (attributes). IS is minimal — just the name. ABOUT carries the richness.
 
 **RELATED** — associative, purpose-driven, often temporary. A podcast tagged for ltq1 right now. Should generally have a qualifier. Often ephemeral.
+
+**SAME_AS** — two points in the space that turn out to be the same real-world entity. Discovered over time, not assumed upfront. Links names across scopes or catcodes across hierarchies.
 
 These are starting points. Other edge labels will emerge from use.
 
@@ -146,7 +156,7 @@ This is meta, not bindings. Per-user, private, works across implementations. A l
 
 ## Hot tags
 
-Runtime/agent concern, not part of the data format. Lightweight indicator: keep this name and some of its context in working memory. Not all context — just enough. Maintained by whatever agent or UI is running.
+Runtime/agent concern, not part of the data format. The ~N names/catcodes the user cares about right now. Inferred from recent activity (what the user is working on, asking about) plus explicit pins. Kept in working memory with enough context to be useful — not everything, just enough. Maintained by whatever agent or UI is running.
 
 ## Format
 

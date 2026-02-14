@@ -49,6 +49,28 @@ def setup():
     cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
     print("pgvector extension enabled")
 
+    # Catcode registry — the fundamental structure
+    # Defines positions in the shared information space.
+    # Prefix search on catcode returns subtrees. Cascading deletes.
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS catcode_registry (
+            catcode VARCHAR(64) PRIMARY KEY,
+            parent_catcode VARCHAR(64) REFERENCES catcode_registry(catcode) ON DELETE CASCADE,
+            label TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT NOW()
+        )
+    """)
+    # text_pattern_ops enables prefix search: WHERE catcode LIKE 'a00101%'
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_catcode_prefix
+        ON catcode_registry (catcode varchar_pattern_ops)
+    """)
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_catcode_parent
+        ON catcode_registry (parent_catcode)
+    """)
+    print("Table: catcode_registry")
+
     # Content table — where blobs live
     cur.execute(f"""
         CREATE TABLE IF NOT EXISTS content (
