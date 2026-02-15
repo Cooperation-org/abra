@@ -8,7 +8,7 @@ import sys
 import psycopg2
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 
 PG_HOST = os.getenv("PG_HOST", "10.0.0.100")
 PG_PORT = os.getenv("PG_PORT", "5432")

@@ -14,6 +14,9 @@ Usage:
 import os
 import xmlrpc.client
 import yaml
+from dotenv import load_dotenv
+
+load_dotenv(os.path.join(os.path.dirname(__file__), '..', '..', '.env'))
 
 
 def load_crm_config():
