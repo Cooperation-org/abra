@@ -5,6 +5,7 @@
 2. `../../arch_notes.md` — architecture: bindings, scopes, sources, hot tags
 3. `../../binding-format-v0.1.md` — the data format spec with examples
 4. `~/.abra/sources.yaml` — this user's data sources and connected systems
+5. `../CLAUDE.md` — impl-level docs (how to run, what goes where)
 
 This implementation may be replaced, but write clean code with best practices. The data it creates must be reusable by other tools.
 
@@ -16,21 +17,17 @@ This implementation may be replaced, but write clean code with best practices. T
 
 ## Implementation
 
-This impl uses PostgreSQL + pgvector to store content blobs and bindings.
+PostgreSQL + pgvector. Stores content blobs and bindings. **No PII.**
 
-- Tables: `content` (blobs + embeddings + catcode), `bindings` (the core + catcode)
-- Run `setup_db.py` to initialize
-- Venv at `.venv/`, activate with `source .venv/bin/activate`
-- Connection details are in `.env` (instance-specific, gitignored)
+- Tables: `content` (blobs + embeddings + catcode), `bindings` (the core + catcode), `catcode_registry` (tree of positions)
+- Schema: `setup_db.py` (run once to initialize)
+- Venv + .env: at `../` (impl level), shared by all impl code
+- Run scripts with `../.venv/bin/python`
 
 ## Tools
 
-- `write_binding.py` — **preferred for interactive processing.** Write bindings and content one at a time as they're approved. Can check for existing names before creating duplicates. Usable as library or CLI. Rejects PII.
-- `import_bindings.py` — batch import from a staging JSON file. For bulk loads. Dry run by default, `--confirm` to write. Rejects PII.
-
-## Connectors
-
-CRM and other external system connectors live in `../connectors/`. Check `~/.abra/sources.yaml` sinks section for what's available and how to reach it. When processing notes and finding contact info, write PII to the CRM connector, not here.
+- `write_binding.py` — **preferred for interactive processing.** Write bindings and content one at a time. Can check for existing names before creating duplicates. Usable as library or CLI. Rejects PII.
+- `import_bindings.py` — batch import from a staging JSON file. Dry run by default, `--confirm` to write. Rejects PII.
 
 ## PII and multi-person notes
 
@@ -39,7 +36,7 @@ See root CLAUDE.md. No PII in this store. A single note may reference multiple p
 1. Strip PII from the note content, store the scrubbed blob in pgvector
 2. For each person/entity mentioned:
    - Create their name (IS binding) in pgvector
-   - Write their contact details to CRM via connector (or flag `HAS contact:pending-crm` if CRM not ready)
+   - Write their contact details to CRM via connector
    - Create `HAS crm:odoo/contact/ID` binding linking the name to their CRM record
    - Create ABOUT or RELATED binding linking the name to the note's content_id
 3. PII lives in the CRM. Relationships live here. The note blob is clean.

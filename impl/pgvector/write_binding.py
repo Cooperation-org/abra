@@ -145,6 +145,18 @@ class AbraWriter:
         self.conn.commit()
         cur.close()
 
+    def rename_name(self, scope, old_name, new_name):
+        """Rename a pet name. Safe — nothing uses name as a foreign key."""
+        cur = self.conn.cursor()
+        cur.execute(
+            "UPDATE bindings SET name = %s WHERE scope = %s AND name = %s",
+            (new_name, scope, old_name)
+        )
+        count = cur.rowcount
+        self.conn.commit()
+        cur.close()
+        return count
+
     def find_name(self, scope, name_prefix):
         """Find existing names matching a prefix. Returns list of (name, relationship, target_ref) tuples."""
         cur = self.conn.cursor()

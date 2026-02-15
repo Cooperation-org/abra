@@ -82,7 +82,11 @@ class OdooConnector:
         catcode_field = self.config.get("catcode_field", "abra_catcode")
         if catcode:
             vals[catcode_field] = catcode
-        return self._execute("res.partner", "create", [vals])
+        result = self._execute("res.partner", "create", [vals])
+        # Odoo returns a list when passed a list of vals; unwrap to single ID
+        if isinstance(result, list):
+            return result[0]
+        return result
 
     def find_contact(self, name=None, email=None, catcode=None):
         """Search for existing contact. Returns list of IDs."""

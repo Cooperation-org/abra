@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# abra — query your contacts, notes, and relationships
+#
+# Usage:
+#   abra who "credentials"         Find people by topic
+#   abra about eric-shepherd       Everything known about a name
+#   abra when 2025-10              Who did I meet that month?
+#   abra when 2025-07 2025-09      Date range
+#   abra search "cooperative"      Search note content
+#   abra related linkedtrust       Who is related to X?
+#   abra refs                      List LT reference docs
+#   abra names kevin               Browse names by prefix
+#
+# For more complex queries, ask Claude:
+#   "use abra to find everyone I know in healthcare credentialing"
+
+ABRA_DIR="/opt/shared/repos/abra/impl"
+PYTHON="$ABRA_DIR/.venv/bin/python"
+QUERY="$ABRA_DIR/pgvector/query.py"
+
+if [ ! -f "$PYTHON" ]; then
+    echo "Error: abra venv not found at $ABRA_DIR/.venv" >&2
+    echo "Run: cd $ABRA_DIR && python3 -m venv .venv && .venv/bin/pip install psycopg2-binary python-dotenv" >&2
+    exit 1
+fi
+
+exec "$PYTHON" "$QUERY" "$@"
