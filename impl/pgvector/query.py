@@ -393,13 +393,18 @@ def main():
     parser.add_argument('--scope', default='golda', help='Scope to query (default: golda)')
     sub = parser.add_subparsers(dest='command')
 
+    scope_kw = dict(default=argparse.SUPPRESS, help='Scope to query')
+
     p_who = sub.add_parser('who', help='Find people by topic')
+    p_who.add_argument('--scope', **scope_kw)
     p_who.add_argument('term', help='Topic keyword to search')
 
     p_about = sub.add_parser('about', help='Show everything about a name')
+    p_about.add_argument('--scope', **scope_kw)
     p_about.add_argument('name', help='Name or prefix to look up')
 
     p_when = sub.add_parser('when', help='Find contacts by date')
+    p_when.add_argument('--scope', **scope_kw)
     p_when.add_argument('start', help='Start date (YYYY-MM or YYYY-MM-DD)')
     p_when.add_argument('end', nargs='?', help='End date (optional)')
 
@@ -407,11 +412,13 @@ def main():
     p_search.add_argument('term', help='Text to search for')
 
     p_related = sub.add_parser('related', help='Find related contacts')
+    p_related.add_argument('--scope', **scope_kw)
     p_related.add_argument('target', help='Name or topic to find relations for')
 
     p_refs = sub.add_parser('refs', help='List LT reference docs')
 
     p_names = sub.add_parser('names', help='List known names')
+    p_names.add_argument('--scope', **scope_kw)
     p_names.add_argument('prefix', nargs='?', help='Filter by prefix')
 
     p_read = sub.add_parser('read', help='Read full note content')
