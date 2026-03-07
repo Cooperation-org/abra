@@ -68,8 +68,11 @@ class AbraWriter:
         cur.close()
         return content_id
 
-    def write_binding(self, scope, name, relationship, target_type, target_ref,
-                      qualifier=None, permanence="CURRENT", source_date=None, catcode=None):
+    def write_binding(self, scope, name, rel=None, target_type=None, target_ref=None,
+                      qualifier=None, permanence="CURRENT", source_date=None, catcode=None,
+                      relationship=None):
+        # accept either 'rel' or 'relationship'
+        relationship = rel or relationship
         """Write a single binding. Rejects PII in target_ref."""
         if check_pii(target_ref):
             print(f"  REJECTED (PII detected): {name} {relationship} {target_ref[:40]}...")
@@ -152,6 +155,27 @@ class AbraWriter:
             "UPDATE bindings SET name = %s WHERE scope = %s AND name = %s",
             (new_name, scope, old_name)
         )
+        count = cur.rowcount
+        self.conn.commit()
+        cur.close()
+        return count
+
+    def set_hot(self, scope, name, priority=0):
+        """Mark a name as hot in a scope."""
+        cur = self.conn.cursor()
+        cur.execute(
+            """INSERT INTO hot_tags (scope, name, priority)
+               VALUES (%s, %s, %s)
+               ON CONFLICT (scope, name) DO UPDATE SET priority = EXCLUDED.priority""",
+            (scope, name, priority)
+        )
+        self.conn.commit()
+        cur.close()
+
+    def unset_hot(self, scope, name):
+        """Remove a name from the hot list."""
+        cur = self.conn.cursor()
+        cur.execute("DELETE FROM hot_tags WHERE scope = %s AND name = %s", (scope, name))
         count = cur.rowcount
         self.conn.commit()
         cur.close()
