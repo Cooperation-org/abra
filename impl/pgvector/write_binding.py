@@ -160,14 +160,17 @@ class AbraWriter:
         cur.close()
         return count
 
-    def set_hot(self, scope, name, priority=0):
-        """Mark a name as hot in a scope."""
+    def set_hot(self, scope, name, priority=0, days=30):
+        """Mark a name as hot in a scope. Expires after `days` days (default 30)."""
         cur = self.conn.cursor()
         cur.execute(
-            """INSERT INTO hot_tags (scope, name, priority)
-               VALUES (%s, %s, %s)
-               ON CONFLICT (scope, name) DO UPDATE SET priority = EXCLUDED.priority""",
-            (scope, name, priority)
+            """INSERT INTO hot_tags (scope, name, priority, expires_at)
+               VALUES (%s, %s, %s, NOW() + make_interval(days => %s))
+               ON CONFLICT (scope, name) DO UPDATE SET
+                   priority = EXCLUDED.priority,
+                   expires_at = EXCLUDED.expires_at,
+                   added_at = NOW()""",
+            (scope, name, priority, days)
         )
         self.conn.commit()
         cur.close()

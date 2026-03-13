@@ -103,6 +103,21 @@ def setup():
     """)
     print("Table: bindings")
 
+    # Hot tags — lightweight flag marking names as "warm context"
+    # Not part of the binding format (runtime/agent concern).
+    # A name in a scope that should be loaded first when referenced.
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS hot_tags (
+            scope VARCHAR(255) NOT NULL,
+            name VARCHAR(255) NOT NULL,
+            priority INTEGER DEFAULT 0,
+            added_at TIMESTAMP DEFAULT NOW(),
+            expires_at TIMESTAMP,
+            PRIMARY KEY (scope, name)
+        )
+    """)
+    print("Table: hot_tags")
+
     # Indexes
     cur.execute("CREATE INDEX IF NOT EXISTS idx_content_note_date ON content(note_date)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_content_catcode ON content(catcode)")
