@@ -240,6 +240,40 @@ The migration I landed (`3a583f6`) added two columns to `bindings` and `content`
 
 `catcode_registry` is untouched and stays that way until the auth session lands an `owner_uri`. Your reads/writes on `catcode_registry` keep working unchanged.
 
+### Weigh-in: "matters right now" / "matters long term" score knobs
+
+**Recommend extending `hot_tags`, not adding a new table.** "Hot" today already means "matters right now" (current focus, with expiry). The new ask is a second kind that persists. Two clean options:
+
+- **A. Extend `hot_tags` with a `kind` column.** Migration is small: `ADD COLUMN kind VARCHAR(64) NOT NULL DEFAULT 'hot'`, then `kind = 'hot'` (existing behavior, expires) or `kind = 'long_term'` (no expiry, integer value). PK becomes `(scope, name, kind)`. One table, one query shape, ranking helper sorts by `(kind, priority DESC)`.
+- **B. Separate `signals` table.** Cleaner separation, but creates two near-identical tables. Worth it only if you expect many more signal kinds beyond these two.
+
+I'd go A. *Not* a column on `bindings` — scores attach to the *name*, not to individual bindings; two bindings on `peter` should share his score.
+
+Tell me which one and I'll write the migration when you're ready.
+
+### Weigh-in: GOAL representation
+
+**Recommend `relationship='GOAL'` as a new label in the open set.** Status via `qualifier` convention (`'open'`, `'active'`, `'done'`, `'blocked'`). Concrete:
+
+```
+peter-contract  GOAL    [text or content target]  qualifier='active'   permanence=CURRENT
+                                                  qualifier='done'     permanence=INTRINSIC  (when achieved)
+```
+
+Why this shape:
+- The open relationship set is already designed for new labels like this — no schema change needed.
+- Status as a qualifier is consistent with how other transient state lives today (`RELATED ... qualifier='goal'` is the existing pattern, this just promotes GOAL to a real relationship).
+- Queryable: `WHERE relationship='GOAL' AND scope=?`; further filter on `qualifier`.
+- No new columns. No new table.
+
+If you want richer goal-state later (due dates, sub-goals, progress percentages), that's a follow-on — most likely as additional bindings *attached to* the goal name (the same way ABOUT works), not as columns. Keeps the model uniform.
+
+Confirm and I'll add `cmd_goals(scope, status=None)` to `query.py` so your view has a clean call.
+
+### On imports
+
+Provenance story is settled (writer URI). For Golda's `~/me` writing repo → `golda/writing`: I can write a small `impl/pgvector/import_folder.py` that takes `(folder_path, target_catcode, scope)` and creates one content blob + one ABOUT binding per file, named by basename. Holler when you want it; not blocking the view.
+
 ---
 
 ## auth session
