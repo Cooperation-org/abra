@@ -325,6 +325,62 @@ Confirm and I'll add `cmd_goals(scope, status=None)` to `query.py` so your view 
 
 Provenance story is settled (writer URI). For Golda's `~/me` writing repo → `golda/writing`: I can write a small `impl/pgvector/import_folder.py` that takes `(folder_path, target_catcode, scope)` and creates one content blob + one ABOUT binding per file, named by basename. Holler when you want it; not blocking the view.
 
+### Responses to the 5 new needs (2026-05-29 pm)
+
+**1. Per-user rich config — `user_config` table, key/value JSONB.**
+
+```sql
+CREATE TABLE user_config (
+    user_uri    TEXT        NOT NULL,
+    key         TEXT        NOT NULL,    -- 'view.tabs', 'view.bindings.columns', 'view.hot_portal_catcode', ...
+    value       JSONB       NOT NULL,
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (user_uri, key)
+);
+```
+
+Reads: `SELECT value FROM user_config WHERE user_uri=$1 AND key=$2` (or prefix scan for a namespace).
+Writes: `INSERT ... ON CONFLICT (user_uri, key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()`. View POSTs **whole keys**, not RFC 6902 diffs — simpler and the values are small enough. Namespace keys with dots so a `view.*` prefix scan returns everything the view cares about in one round trip.
+
+`user_uri` is the writer URI we already have (e.g. `urn:abra:local:golda`). I'll add this in migration 002 alongside the user_signal table below.
+
+**2. Score knobs — going with your option (b), `user_signal` table.**
+
+I'm retracting my earlier "extend hot_tags" answer. You're right that scores are per-user; hot_tags today is scope-level, conflating those two would be wrong. Keep them separate. Hot_tags stays as it is.
+
+```sql
+CREATE TABLE user_signal (
+    user_uri    TEXT        NOT NULL,
+    scope       VARCHAR(255) NOT NULL,
+    name        VARCHAR(255) NOT NULL,
+    score_kind  VARCHAR(64)  NOT NULL,   -- 'now' | 'long' for v1, extensible
+    value       REAL         NOT NULL,
+    updated_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (user_uri, scope, name, score_kind)
+);
+CREATE INDEX idx_user_signal_rank ON user_signal (user_uri, scope, score_kind, value DESC);
+```
+
+View POSTs reorder events: `(user_uri, scope, name, kind, new_value)` → upsert. Reads: `SELECT name, value FROM user_signal WHERE user_uri=$1 AND scope=$2 AND score_kind=$3 ORDER BY value DESC`. Recency for `now` is computed view-side (decay from `updated_at`); no special server work.
+
+**3. Goals — `relationship='GOAL'`, status in qualifier.** (Confirming my earlier weigh-in.)
+
+Definitive: pick `relationship='GOAL'` (new label in the open set). Status lives in `qualifier`: `'open' | 'active' | 'blocked' | 'done'`. No schema change. Queryable as `WHERE relationship='GOAL' AND scope=?`. I'll add `cmd_goals(scope, status=None)` in `query.py` when you want it.
+
+Not a reserved catcode (catcodes are about *where things sit*, not *what things are*). Not just a qualifier on RELATED (that's the loose existing convention; this promotes it to a real relationship for clean filtering).
+
+**4. Heading rename to "what you know"** — noted, no action from me. Heads-up appreciated.
+
+**5. `/hot` portal convention** — noted, no schema change needed. Catcode label is just a label; the view recognizing a suffix is a view-side convention. If you ever want it more structured we could add a `meta` JSONB column to `catcode_registry`, but I wouldn't pre-build it.
+
+### Migration 002 plan
+
+When you want, I'll land in one commit:
+- `user_config` table (above)
+- `user_signal` table (above)
+
+Both nullable / no impact on existing tables. No backfill needed. Will be in `impl/pgvector/migrations/002_user_config_and_signals.py`. Holler.
+
 ### Typed targets — important requirement (Golda, 2026-05-29)
 
 Web components in your views must be able to **usefully connect** to typed entities — e.g. when a binding's target is an Odoo CRM contact, the component should fetch the contact from Odoo and render it as a proper contact widget, not as a raw URI string.
