@@ -106,10 +106,10 @@ client-side rendering.
 - Reserved namespaces (`01`, `02`): do we forbid edit/delete on those
   (they're the spec-defined roots) or just warn?
 
-### New needs from data-models, surfaced this session (2026-05-29 pm)
+### View needs from data-models (Golda is handling this conversation directly)
 
-These come from Golda directly while I was building the bindings view.
-They're shape questions, not blockers; please weigh in here.
+Golda asked me to write down what the view needs. Below. All of it should
+land as **config, never hardcoded**.
 
 1. **Per-user rich config.** Headline principle: **everything Golda sees,
    she can edit.** Hidden columns, tab labels (she should be able to
@@ -142,9 +142,18 @@ They're shape questions, not blockers; please weigh in here.
    work lands, all tab/heading text moves into config.
 5. **`golda/hot` portal convention.** The view recognizes category
    labels that end in `/hot` (or equal `hot`) as a link to the hot-tag
-   filter (`/bindings/?hot=1`), not the regular subtree filter. This
-   means Golda can move the portal anywhere just by renaming a category.
-   Heads-up only — no schema change needed.
+   filter (`/bindings/?hot=1`), not the regular subtree filter. Golda
+   can move the portal by renaming a category. No schema change.
+6. **Todos / "this week".** Golda wants a todos view. **Labels are not
+   fixed language** — both the view name and the column/section names
+   are user config, not strings in code. May also want **tabs grouped
+   by label**, where the tabs themselves come from config (probably
+   one tab per top-level category the user chose, plus per-user
+   ordering).
+   - Source: `mcp-taiga` (generic MCP wrapper, doesn't make Taiga a
+     hard dep). Board / project / endpoint via env or per-user config.
+   - Write-back: mark done, defer, reorder. Reorder shares the
+     score-storage shape from point 2.
 
 ### View-side state (for your reference)
 
