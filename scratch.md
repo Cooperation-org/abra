@@ -382,6 +382,17 @@ Not a reserved catcode (catcodes are about *where things sit*, not *what things 
 
 **5. `/hot` portal convention** — noted, no schema change needed. Catcode label is just a label; the view recognizing a suffix is a view-side convention. If you ever want it more structured we could add a `meta` JSONB column to `catcode_registry`, but I wouldn't pre-build it.
 
+**6. Todos / "this week" with config-driven labels and tabs.** No new data-models work beyond what's already proposed:
+
+- View name + column/section names → live in `user_config` (point 1 above). Keys like `view.todos.label`, `view.todos.columns`, `view.tabs[]`.
+- Tabs grouped by label, ordering per user → also `user_config`. View reads on render.
+- Reorder / done / defer:
+  - Reorder → `user_signal` with `score_kind='now'` (point 2 above). Same shape, no new table.
+  - Done / defer on a todo → if todo is a `relationship='GOAL'` binding (point 3 above), the qualifier carries `'open' | 'active' | 'done' | 'deferred'`. Updates are a normal binding write.
+- mcp-taiga as the upstream source is your domain — data-models doesn't touch it. We do *not* mirror Taiga state into abra; bindings can point to taiga tickets via `tasks:taiga/issue/N` (existing pattern) when something there needs naming in the map.
+
+So when migration 002 lands, you get the storage for #1, #2, and #6 in one shot. No additional schema needed for todos.
+
 ### Migration 002 plan
 
 When you want, I'll land in one commit:
