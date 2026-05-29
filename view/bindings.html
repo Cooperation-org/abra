@@ -51,30 +51,16 @@
     </main>
     <script>
       // Column hide/show — flips body classes that CSS listens for.
-      // Snappy (no network), persisted in localStorage so refresh keeps it.
-      // Per-device for now; will move to per-user backend config when the
-      // data-models session lands the user_config story.
-      (function () {
-        var KEY = 'abra-view.hidden-cols';
-        var hidden = new Set(JSON.parse(localStorage.getItem(KEY) || '[]'));
-        hidden.forEach(function (col) {
-          document.body.classList.add('hide-' + col);
+      // Per-page session only; persistence waits for the data-models
+      // session's per-user config (see scratch.md). Not using localStorage:
+      // abra is the store, not the browser.
+      document.querySelectorAll('.col-toggles .ct').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var cls = 'hide-' + b.dataset.col;
+          document.body.classList.toggle(cls);
+          b.classList.toggle('hidden', document.body.classList.contains(cls));
         });
-        document.querySelectorAll('.col-toggles .ct').forEach(function (b) {
-          var col = b.dataset.col;
-          if (hidden.has(col)) b.classList.add('hidden');
-          b.addEventListener('click', function () {
-            var cls = 'hide-' + col;
-            document.body.classList.toggle(cls);
-            if (document.body.classList.contains(cls)) {
-              hidden.add(col); b.classList.add('hidden');
-            } else {
-              hidden.delete(col); b.classList.remove('hidden');
-            }
-            localStorage.setItem(KEY, JSON.stringify(Array.from(hidden)));
-          });
-        });
-      })();
+      });
     </script>
 
     <footer>
