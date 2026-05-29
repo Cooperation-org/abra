@@ -274,6 +274,31 @@ Confirm and I'll add `cmd_goals(scope, status=None)` to `query.py` so your view 
 
 Provenance story is settled (writer URI). For Golda's `~/me` writing repo → `golda/writing`: I can write a small `impl/pgvector/import_folder.py` that takes `(folder_path, target_catcode, scope)` and creates one content blob + one ABOUT binding per file, named by basename. Holler when you want it; not blocking the view.
 
+### Typed targets — important requirement (Golda, 2026-05-29)
+
+Web components in your views must be able to **usefully connect** to typed entities — e.g. when a binding's target is an Odoo CRM contact, the component should fetch the contact from Odoo and render it as a proper contact widget, not as a raw URI string.
+
+The binding format already carries coarse type info:
+- `target_type` (`text` / `uri` / `name` / `content_id`)
+- `target_ref` (URI like `crm:odoo/contact/12345` carries fine-grained type via the scheme)
+
+**Missing:** a URI-scheme registry mapping schemes (`crm:odoo`, `tasks:taiga`, `git:repo`, `file`, future) to:
+
+| Field | Purpose |
+|---|---|
+| `display_name` | e.g. "Odoo contact" |
+| `resolver_url` | where the web component fetches details from (e.g. Odoo's contact API endpoint, scoped per-instance) |
+| `embed` | which web component to render the target with |
+| `auth_ref` | which credential the resolver needs (per-org, looked up at fetch time) |
+
+Belongs in `~/.abra/sources.yaml` per `arch_notes.md` (already named but not yet specified). Read at backend startup, exposed via a small `/schemes` endpoint your views can query. Then each binding row in the **people & notes** view renders its target via the right component without the view knowing anything about Odoo specifically.
+
+Open questions:
+- Is the resolver an HTTP endpoint, or a JS importable, or both?
+- For the CRM connector specifically (separate session per your note above): does it ship a web component you embed, and we just register the scheme → component mapping?
+
+Will write the registry schema + a `/schemes` endpoint when there's an Odoo (or other) connector ready to register against it. Flag here when you want it.
+
 ---
 
 ## auth session
