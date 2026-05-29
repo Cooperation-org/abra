@@ -111,6 +111,46 @@ client-side rendering.
 Golda asked me to write down what the view needs. Below. All of it should
 land as **config, never hardcoded**.
 
+### Architectural input from Golda (2026-05-29, voice — needs care)
+
+> Originally everything in abra was a category code. Now things are so
+> language-based. Things have **labels** attached as attributes, and
+> labels are **free language**. Tabs in the view can be driven by labels,
+> not just by category codes. Add into the system very carefully.
+
+What this implies, surfacing for discussion (no code yet):
+
+- **Labels are first-class** alongside catcodes. Catcodes are hierarchical
+  addresses (technical). Labels are free-text attributes (how the user
+  thinks).
+- **"hot" is itself a label**, not a special concept. The `hot_tags`
+  table becomes "names with the `hot` label" — a special case of the
+  general label mechanism.
+- Same for any other portal: "writing", "todos", "this week" — all just
+  labels. The `/hot` magic-suffix convention I shipped this session
+  should retire once labels-as-attributes lands.
+- View tabs can be **per-user label-picks**: Golda chooses which labels
+  become top-level tabs and in what order. Catcodes can still drive a
+  tab (the categories view), but it's no longer the only organizing axis.
+
+Open shape questions (for the data-models session, with Golda):
+1. **Where do labels attach?** On *names* (a label per pet name, applied
+   to all bindings under that name)? On *bindings* (per-binding)? On
+   *both* with different semantics?
+2. **Multiple labels per thing** — yes, presumably. Order significant?
+3. **Same-name labels in different scopes** — `hot` in `golda` vs `hot`
+   in `linkedtrust` independent or shared?
+4. **Author of the label** — who set it (provenance, like bindings)?
+5. **Expiry** — `hot_tags` has expiry. General label expiry too?
+6. **Storage shape** options:
+   - new table `labels(scope, name, label, created_by, created_at, expires_at)` —
+     mirrors `hot_tags` but generic
+   - `labels TEXT[]` array on `bindings`
+   - bindings with `relationship = LABEL` and `target_type = text`
+   The last reuses existing primitives; first is cleanest for queries.
+7. **Migration of `hot_tags`** — when labels land, does `hot_tags` get
+   folded into `labels` with `label='hot'`?
+
 1. **Per-user rich config.** Headline principle: **everything Golda sees,
    she can edit.** Hidden columns, tab labels (she should be able to
    rename "categories" or "what you know" to anything), sort order,
