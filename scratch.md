@@ -128,11 +128,16 @@ interface, full control.
 
 #### Next views (roughly the order Golda asked for them)
 
-3. **this week** — what she needs to do this week, pulled from a task
-   tracker (Taiga via `mcp-taiga` is the obvious one) and pushed back
-   to it. *Mutable.* Reorder, mark done, defer. One interface, she
-   stays in control. Probably also surfaces hot tags + open goals so
-   "this week" reads as her actual focus.
+3. **this week** — what she needs to do this week. *Mutable.* Reorder,
+   mark done, defer. One interface, she stays in control. Probably
+   also surfaces hot tags + open goals so "this week" reads as her
+   actual focus.
+   - **Backend: `mcp-taiga` is fine** — already a generic MCP wrapper,
+     so using it doesn't make Taiga a hard dep of the view. (If we
+     ever swap trackers, only the MCP server changes.)
+   - **Nothing hardcoded that should be config.** Board / project /
+     user / API endpoint are all read from env or a tiny config file,
+     never baked into the view. Same rule for every future integration.
 4. **digest** — one-screen "what should I look at today?" Hot tags
    first, then names with recent activity, then recent content blobs.
 5. **notes-in** — single text box: "what's on your mind?" Submits via
@@ -152,12 +157,13 @@ interface, full control.
   all views. Needs a data-model decision (new columns on `bindings`?
   separate signal table?) — please weigh in here.
 - **Imports into a category.** First concrete case: Golda's `~/me`
-  writing repo, imported under a new category `golda/writing`, one
-  binding per file (or per chunk). General pattern: pick a folder/repo
-  + a target catcode → ingest each file as content + create bindings.
-  Probably belongs as a small data-models endpoint plus a button on the
-  **categories** view: *"+ import into here from a folder…"*. Needs the
-  writer URI / provenance story to be settled first.
+  writing repo, imported under a new category `golda/writing`,
+  **one binding per file** (confirmed 2026-05-29). General pattern:
+  pick a folder/repo + a target catcode → for each file, store the
+  file as a content blob and create an ABOUT binding with the file's
+  basename as the pet name. Belongs as a small data-models endpoint
+  plus a button on the **categories** view: *"+ import into here from
+  a folder…"*. Needs the writer URI / provenance story settled first.
 - **Old-data import.** Golda has older abra data on another server and
   will bring it here. Import + dedup is its own ticket; flag schema
   differences here when the data lands.
