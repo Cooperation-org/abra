@@ -1,0 +1,174 @@
+/* abra view — catcodes
+ * Minimal styles, no framework. Dark slate + teal to match the team palette,
+ * but small enough to live and breathe on its own.
+ */
+:root {
+  --bg: #0f172a;
+  --surface: #1e293b;
+  --surface-2: #273449;
+  --border: #334155;
+  --ink: #f1f5f9;
+  --ink-2: #cbd5e1;
+  --muted: #94a3b8;
+  --brand: #14b8a6;
+  --brand-soft: rgba(20, 184, 166, 0.12);
+  --danger: #f43f5e;
+  --radius: 6px;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  padding: 2rem 1.5rem 4rem;
+  max-width: 880px;
+  margin: 0 auto;
+}
+
+header h1 {
+  font-family: "Special Elite", ui-monospace, "Cascadia Mono", "Source Code Pro", monospace;
+  margin: 0 0 0.25rem;
+  color: var(--brand);
+  font-size: 1.75rem;
+}
+.lead { color: var(--ink-2); margin: 0 0 1.5rem; }
+.muted { color: var(--muted); font-size: 0.85rem; }
+code {
+  background: var(--surface);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-family: ui-monospace, "Cascadia Mono", "Source Code Pro", monospace;
+  font-size: 0.9em;
+}
+a { color: var(--brand); }
+a:hover { color: #2dd4bf; }
+
+main { margin-top: 1rem; }
+
+.top-actions {
+  margin-bottom: 0.75rem;
+}
+
+button, .btn {
+  background: var(--surface);
+  color: var(--ink-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: border-color 80ms, color 80ms;
+}
+button:hover, .btn:hover { color: var(--brand); border-color: var(--brand); }
+button.danger:hover { color: var(--danger); border-color: var(--danger); }
+button.primary {
+  background: var(--brand);
+  color: var(--bg);
+  border-color: var(--brand);
+  font-weight: 600;
+}
+button.primary:hover { background: #2dd4bf; color: var(--bg); }
+
+input[type="text"] {
+  background: var(--bg);
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 0.9rem;
+  font-family: ui-monospace, "Cascadia Mono", "Source Code Pro", monospace;
+}
+input[type="text"]:focus {
+  outline: none;
+  border-color: var(--brand);
+}
+label { color: var(--muted); font-size: 0.8rem; margin-right: 0.25rem; }
+
+/* Tree */
+ul.tree, ul.children {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+ul.children {
+  margin-left: 1rem;
+  border-left: 1px dashed var(--border);
+  padding-left: 1rem;
+  margin-top: 4px;
+}
+li {
+  margin: 4px 0;
+}
+.node-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 6px 10px;
+  background: var(--surface);
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+}
+.node-row:hover {
+  border-color: var(--border);
+}
+.code {
+  font-family: ui-monospace, "Cascadia Mono", "Source Code Pro", monospace;
+  color: var(--brand);
+  font-size: 0.85rem;
+  min-width: 7rem;
+}
+.label {
+  color: var(--ink);
+  flex: 1;
+}
+.actions {
+  display: flex;
+  gap: 4px;
+  opacity: 0.55;
+  transition: opacity 80ms;
+}
+.node-row:hover .actions { opacity: 1; }
+
+/* Inline forms — edit, add-top, add-child */
+.edit-form, .add-form {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  background: var(--brand-soft);
+  border: 1px solid var(--brand);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  margin: 4px 0;
+}
+.add-form .prefix {
+  font-family: ui-monospace, "Cascadia Mono", "Source Code Pro", monospace;
+  color: var(--brand);
+}
+
+/* Inline error banner */
+.error {
+  color: var(--danger);
+  background: rgba(244, 63, 94, 0.08);
+  border: 1px solid var(--danger);
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  margin: 6px 0;
+  font-size: 0.85rem;
+}
+#flash:empty { display: none; }
+#flash { margin-bottom: 0.5rem; }
+
+/* htmx pending / settling */
+.htmx-request .node-row { opacity: 0.6; }
+.htmx-request button { cursor: progress; }
+
+footer {
+  margin-top: 3rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}

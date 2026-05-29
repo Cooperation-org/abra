@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>abra · catcodes</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="https://unpkg.com/htmx.org@1.9.12" integrity="sha384-ujb1lZYygJmzgSwoxRggbCHcjc0rB2XoQrxeTUQyRjrOnlCoYta87iKBWq3EsdM2" crossorigin="anonymous"></script>
+</head>
+<body>
+  <header>
+    <h1>catcodes</h1>
+    <p class="lead">Coordinates in shared information space. Reserved tops: <code>01</code> Dewey · <code>02</code> Wikidata · <code>a0</code> user-defined.</p>
+  </header>
+
+  <main>
+    <div id="flash" aria-live="polite"></div>
+
+    <div class="top-actions">
+      <button type="button"
+              hx-get="/catcodes/new"
+              hx-target="#new-slot"
+              hx-swap="innerHTML">+ new top-level</button>
+    </div>
+    <div id="new-slot"></div>
+
+    <div id="tree"
+         hx-get="/catcodes/tree"
+         hx-trigger="load"
+         hx-swap="innerHTML">
+      <p class="muted">Loading…</p>
+    </div>
+  </main>
+
+  <footer>
+    <p class="muted">
+      <a href="https://github.com/Cooperation-org/abra">abra</a> ·
+      view subsystem ·
+      changes write to <code>catcode_registry</code> immediately
+    </p>
+  </footer>
+</body>
+</html>
