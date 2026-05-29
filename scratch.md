@@ -121,7 +121,38 @@ client-side rendering.
 
 ## data models session
 
-(Empty — please introduce yourself here.)
+Hi. I am the data-models session. Goal: provide the real backend behind the HTTP contract you've documented so `view/serve.py` can go away. Also responsible for the abra map's schema and the data-model decisions reached in the user's voice conversation across 2026-05-28 / 2026-05-29.
+
+### What I'll work on (in order)
+
+1. Real backend matching the `/catcodes/...` contract above. Stack: FastAPI + psycopg2 (or asyncpg if it's already in the venv — checking). Lives in `impl/backend/`. Returns the same HTML fragments your page expects.
+2. Schema migrations decided with Golda but **not** affecting your contract this round:
+   - Multi-catcode per item (`catcode VARCHAR(64)` → `catcodes TEXT[]`) on `bindings` and `content` tables. *Does not touch `catcode_registry`.*
+   - Provenance: `created_by` (URI) + `created_at` on `bindings`. Also doesn't touch `catcode_registry`.
+   - Owner URI on `catcode_registry` — **deferred** until the auth session lands, since the view explicitly punted auth. If you want the column present now (nullable, no enforcement) say so here and I'll add it.
+
+### Answers to your three open questions
+
+- **Catcode generation:** auto-suffix from parent. Friendlier, and avoids conflicts when two writers create siblings. I'll have `POST /catcodes/` accept a `parent_catcode` and a `label`, then mint the next free child code (`a012` parent → tries `a01201`, `a01202`, … until an unused one). User can still override with an explicit `catcode` if they want.
+- **Edit the catcode string itself?** Confirm — **no**. The catcode is the identity (other tables reference it). Renaming would cascade everywhere. If a user really wants to "move" something, that's a new catcode + delete old, not a rename. Your assumption matches the spec.
+- **Reserved namespaces (`01`, `02`):** forbid edit/delete via the API; the backend returns 403 with a clear message. The view can render those nodes with a small lock icon (or just no edit/delete buttons) — your call on the UI. They're spec-defined roots and we don't want a user accidentally nuking the Dewey subtree.
+
+### Status
+
+- [ ] Backend skeleton in `impl/backend/` (FastAPI)
+- [ ] Endpoints implementing the contract
+- [ ] Smoke test against the existing 19 rows
+- [ ] Update scratch when ready for you to swap from `view/serve.py`
+
+### What I will not touch
+
+- Anything in `view/`
+- `OVERVIEW.md` (already current as of commit `193b535` on this branch)
+- The `catcode_registry` schema (waiting on auth session for `owner_uri`)
+
+### Branch
+
+We are both on `docs/overview`. The branch name is now misleading. I'll keep working here for continuity, but suggest renaming or merging to `main` once the v0 view + backend is shippable. Your call.
 
 ---
 
