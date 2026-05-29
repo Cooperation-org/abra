@@ -123,28 +123,38 @@ def db_delete(code: str) -> None:
 # ── Bindings browse — read-only ──────────────────────────────────────────
 # Default scope is configurable; future change is a scope picker in the UI.
 SCOPE = os.getenv("ABRA_VIEW_SCOPE", "golda")
+# Category-label suffixes that act as label-portals (clicking links to
+# ?label=<word> in the people view instead of the catcode subtree). Env-
+# configurable; will move to per-user config when data-models lands it.
+PORTAL_LABELS = {
+    s.strip().lower()
+    for s in os.getenv("ABRA_VIEW_PORTAL_LABELS", "hot").split(",")
+    if s.strip()
+}
 
 
-def db_top_names(q: str | None, catcode: str | None, hot: bool = False,
+def db_top_names(q: str | None, catcode: str | None, label: str | None = None,
                  limit: int = 50) -> list[tuple[str, int, str | None, str | None]]:
     """Names with binding count, most-recent date, and a teaser qualifier.
     Sort: count desc, then most-recent desc.
     Filters stack: q is name substring; catcode is prefix-match against the
-    hierarchical catcode address (so `a001` returns the full subtree); hot
-    filters to names currently in `hot_tags` for the scope."""
+    hierarchical catcode address (so `a001` returns the full subtree); label
+    filters to names that carry that label in the unified `labels` table
+    (data-models migration 003), expiry-aware."""
     args: list = [SCOPE, SCOPE]
     where = ""
     if q:
         where += " AND b.name ILIKE %s"
         args.append(f"%{q}%")
-    if hot:
+    if label:
         where += """
             AND b.name IN (
-                SELECT name FROM hot_tags
-                WHERE scope = %s AND (expires_at IS NULL OR expires_at > NOW())
+                SELECT name FROM labels
+                WHERE scope = %s AND label = %s
+                  AND (expires_at IS NULL OR expires_at > NOW())
             )
         """
-        args.append(SCOPE)
+        args.extend([SCOPE, label])
     if catcode:
         # Multi-category: a binding can live under several catcodes
         # (`catcodes TEXT[]` per data-models migration 001). Prefix match
@@ -286,15 +296,19 @@ def esc(s: str | None) -> str:
 def link_for_category(code: str, label: str) -> str:
     """Where clicking a category label goes.
 
-    Convention: a label that ends in `/hot` (or is exactly `hot`) is a
-    portal to the hot-tag lens — the bindings page in hot-only mode.
-    All other labels link to their subtree of bindings. The convention
-    is intentional so the user can move the "hot" portal around by
-    renaming a category, with nothing hardcoded.
+    Convention: a category whose last path segment is a recognised
+    label-portal word (today: `hot`) is a link to that label's filter
+    in the people view. Everything else links to the catcode subtree.
+
+    The convention is narrow so plain structural categories
+    (`linkedtrust/2026/projects`) keep their subtree behaviour. To
+    add other portal labels later, this list will move to per-user
+    config (see scratch.md / data-models user_config story).
     """
-    lower = (label or "").lower()
-    if lower == "hot" or lower.endswith("/hot"):
-        return u("/bindings/") + "?hot=1"
+    from urllib.parse import quote
+    tail = (label or "").rsplit("/", 1)[-1].strip().lower()
+    if tail in PORTAL_LABELS:
+        return u("/bindings/") + "?label=" + quote(tail)
     return u("/bindings/") + f"?catcode={code}"
 
 
@@ -469,10 +483,10 @@ def render_target(target_type: str, target_ref: str) -> str:
 # ── Bindings view fragments ──────────────────────────────────────────────
 
 def binding_list_html(rows: list[tuple], q: str | None,
-                      catcode: str | None = None, hot: bool = False) -> str:
+                      catcode: str | None = None, label: str | None = None) -> str:
     if not rows:
-        if hot:
-            return '<p class="muted">Nothing is hot right now.</p>'
+        if label:
+            return f'<p class="muted">Nothing is labelled <code>{esc(label)}</code> right now.</p>'
         if catcode and q:
             return f'<p class="muted">No names match <code>{esc(q)}</code> in this category.</p>'
         if catcode:
@@ -619,14 +633,14 @@ class Handler(BaseHTTPRequestHandler):
             params = _pq(qs)
             q = (params.get("q", [""])[0] or "").strip()
             catcode = (params.get("catcode", [""])[0] or "").strip()
-            hot = (params.get("hot", [""])[0] or "").strip() == "1"
+            label = (params.get("label", [""])[0] or "").strip()
             chip = ""
-            if hot:
-                chip = self._chip_html("filtered: hot only", clear_qs="")
+            if label:
+                chip = self._chip_html(f"label: {label}", clear_qs="")
             elif catcode:
-                label = db_catcode_label(catcode) or catcode
+                lbl = db_catcode_label(catcode) or catcode
                 chip = self._chip_html(
-                    f"filtered: {label}",
+                    f"category: {lbl}",
                     clear_qs="?q=" + (q or "") if q else "",
                 )
             return lambda: apply_view_texts(
@@ -634,7 +648,7 @@ class Handler(BaseHTTPRequestHandler):
                 .replace("__BASE__", BASE)
                 .replace("__Q__", esc(q))
                 .replace("__CATCODE__", esc(catcode))
-                .replace("__HOT__", "1" if hot else "")
+                .replace("__LABEL__", esc(label))
                 .replace("__CHIP__", chip),
                 db_get_view_texts(),
             )
@@ -727,9 +741,9 @@ class Handler(BaseHTTPRequestHandler):
         params = _pq(qs)
         q = (params.get("q", [""])[0] or "").strip()
         catcode = (params.get("catcode", [""])[0] or "").strip()
-        hot = (params.get("hot", [""])[0] or "").strip() == "1"
-        rows = db_top_names(q or None, catcode or None, hot=hot, limit=50)
-        return binding_list_html(rows, q or None, catcode=catcode or None, hot=hot)
+        label = (params.get("label", [""])[0] or "").strip()
+        rows = db_top_names(q or None, catcode or None, label=label or None, limit=50)
+        return binding_list_html(rows, q or None, catcode=catcode or None, label=label or None)
 
     def _chip_html(self, text: str, clear_qs: str = "") -> str:
         href = u("/bindings/") + (clear_qs or "")
