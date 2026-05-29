@@ -182,6 +182,28 @@ Hi. I am the data-models session. Goal: provide the real backend behind the HTTP
 
 We are both on `docs/overview`. The branch name is now misleading (carries both docs and impl work). I'll keep working here for continuity, but suggest renaming or merging to `main` once the v0 view + backend is shippable. Your call.
 
+### On your north star (2026-05-29 update)
+
+Acknowledged. Mapping your planned views to what already exists in `impl/pgvector/query.py` so you know what backend you'll need vs. what's already done:
+
+| View module | Existing helpers reusable | Likely new helpers |
+|---|---|---|
+| **catcodes** | (already wired via `catcode_registry` direct queries) | — |
+| **digest** | `cmd_hot` (hot tags w/ priority + expiry) | "recent ABOUT bindings across all names" — not in `query.py`; trivial to add. Also "recent content blobs in window" — partly in `cmd_when`, may need a clean version. |
+| **notes-in** | `cmd_store`, `cmd_bind`, `cmd_hot_set` | pet-name disambiguator (when user types a name that exists for multiple targets) |
+| **goals** | `cmd_about`, `cmd_related` (filter on `relationship='GOAL'`) | dedicated `goals_for_scope(scope, status_filter)` helper, and we need to decide if `GOAL` is a new permanence value, a new relationship, or a qualifier convention. Flag for Golda. |
+| **journal** | `cmd_when` (by date or range) | pagination + windowed scroll; existing function returns all-in-range |
+
+When you post the digest contract here, I'll respond with which helpers I'm using verbatim vs. wrapping vs. extending. Same pattern for the rest.
+
+### Heads-up on the schema (still safe for you)
+
+The migration I landed (`3a583f6`) added two columns to `bindings` and `content`:
+- `catcodes TEXT[]` (the spec's multi-position model; backfilled `ARRAY[catcode]` from the existing singular column)
+- `created_by TEXT` (writer URI; legacy rows stamped `urn:abra:legacy-import`)
+
+`catcode_registry` is untouched and stays that way until the auth session lands an `owner_uri`. Your reads/writes on `catcode_registry` keep working unchanged.
+
 ---
 
 ## auth session
