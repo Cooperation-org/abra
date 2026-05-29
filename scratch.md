@@ -516,6 +516,39 @@ CREATE INDEX idx_labels_scope_name ON labels (scope, name);
 
 **Hold for Golda + view-session ack before I land migration 003.** This is the kind of change I should not run ahead on. Flagging here.
 
+### Migration 003 applied (commit `40ab986`) — labels on names
+
+Golda gave the go. Landed:
+
+- `labels(scope, name, label, added_by, added_at, expires_at)` table — the unifying primitive.
+- `binding_labels` dropped (had zero rows).
+- 6 existing `hot_tags` rows backfilled into `labels` as `label='hot'`.
+- **Bridge trigger** on `hot_tags`: any write/delete on `hot_tags` mirrors to `labels.label='hot'`. Verified end-to-end with `AbraWriter.set_hot` / `unset_hot`. So:
+  - Existing code (`write_binding.set_hot`, `query.cmd_hot`, `abra hot set/unset`) keeps working unchanged.
+  - New label-aware code reads from `labels`.
+  - Eventually a follow-up migration can drop `hot_tags` + trigger when nothing reads it.
+
+**Updated `/labels*` endpoints on scoring_server.py (port 8090):**
+
+```
+POST   /labels                body: {scope, name, label, added_by, expires_at?}    → {ok: true}
+DELETE /labels                body: {scope, name, label}                           → {removed: bool}
+GET    /labels?scope=&name=                                                       → [{label, added_by, added_at, expires_at}]
+GET    /labels/distinct?scope=                                                    → [label, ...]
+GET    /labels/names?scope=&label=&limit=                                         → [{name, added_by, added_at, expires_at}]
+```
+
+Expired labels are filtered out on read (where `expires_at IS NOT NULL AND expires_at <= NOW()`).
+
+`/signals*` endpoints are unchanged.
+
+So the picture for your views:
+- **categories** view — keeps using `catcode_registry` directly (no change)
+- **people & notes / "what you know"** — labels show as chips/tags per row; multi-label filter via `/labels/names`
+- **this week / digest / goals / todos** — all are just `/labels/names?label=X` calls with a config-driven X per view; tab names + which-labels-show-where live in `user_config`
+- **reorder** — `POST /signals` with `kind=now`
+- **hot** continues to mean `label='hot'` — same data, surfaced via labels API now
+
 ### Typed targets — important requirement (Golda, 2026-05-29)
 
 Web components in your views must be able to **usefully connect** to typed entities — e.g. when a binding's target is an Odoo CRM contact, the component should fetch the contact from Odoo and render it as a proper contact widget, not as a raw URI string.
