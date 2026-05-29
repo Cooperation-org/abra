@@ -31,6 +31,12 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 ENV_PATH = ROOT / "impl" / ".env"
 
+# The team's writer with provenance. The view writes through this for
+# every mutation so `created_by` lands on every row (data-models
+# migration 001). We never INSERT bindings via direct SQL.
+sys.path.insert(0, str(ROOT / "impl" / "pgvector"))
+from write_binding import AbraWriter  # noqa: E402
+
 
 def _load_env(path: Path) -> None:
     """Minimal .env parser (KEY=value, ignore comments + blanks).
@@ -99,14 +105,19 @@ def db_get(code: str) -> tuple[str, str | None, str] | None:
 
 
 def db_insert(code: str, parent: str | None, label: str) -> None:
-    with conn() as c, c.cursor() as cur:
-        cur.execute(
-            "INSERT INTO catcode_registry (catcode, parent_catcode, label) VALUES (%s, %s, %s)",
-            (code, parent or None, label),
-        )
+    """Create a new catcode via AbraWriter so writes are stamped."""
+    w = AbraWriter()
+    try:
+        w.register_catcode(code, parent or None, label)
+    finally:
+        w.close()
 
 
 def db_update_label(code: str, label: str) -> None:
+    """Catcode label edit. AbraWriter doesn't ship an explicit update for
+    `catcode_registry.label` (it's the address-space registry, separate
+    from binding writes), so this stays direct SQL until a writer method
+    lands. The catcode itself is identity and never mutates here."""
     with conn() as c, c.cursor() as cur:
         cur.execute(
             "UPDATE catcode_registry SET label = %s WHERE catcode = %s",
@@ -115,20 +126,25 @@ def db_update_label(code: str, label: str) -> None:
 
 
 def db_delete(code: str) -> None:
-    # FK ON DELETE CASCADE handles the subtree.
-    with conn() as c, c.cursor() as cur:
-        cur.execute("DELETE FROM catcode_registry WHERE catcode = %s", (code,))
+    """Delete a catcode (cascades). Uses AbraWriter so any future
+    audit-log hook on deletes runs."""
+    w = AbraWriter()
+    try:
+        w.delete_catcode(code)
+    finally:
+        w.close()
 
 
 # ── Bindings browse — read-only ──────────────────────────────────────────
 # Default scope is configurable; future change is a scope picker in the UI.
 SCOPE = os.getenv("ABRA_VIEW_SCOPE", "golda")
 # Category-label suffixes that act as label-portals (clicking links to
-# ?label=<word> in the people view instead of the catcode subtree). Env-
-# configurable; will move to per-user config when data-models lands it.
+# ?label=<word> in the people view instead of the catcode subtree). Set
+# this via env until per-user config lands; empty default means no
+# portals — the user opts in by configuring them.
 PORTAL_LABELS = {
     s.strip().lower()
-    for s in os.getenv("ABRA_VIEW_PORTAL_LABELS", "hot").split(",")
+    for s in os.getenv("ABRA_VIEW_PORTAL_LABELS", "").split(",")
     if s.strip()
 }
 
@@ -201,6 +217,19 @@ def db_catcode_label(code: str) -> str | None:
 # by entering edit mode and typing. When data-models lands a richer
 # user_config story, these IS-bindings migrate cleanly.
 
+# UI preference keys (`view:ui.*`) → the body class they toggle. The user
+# clicks a toggle, JS POSTs the new state, and on next render the server
+# applies the body class. Same mechanism as VIEW_DEFAULTS; different shape
+# (boolean rather than free text).
+UI_PREFS: dict[str, str] = {
+    "ui.show-codes":    "show-codes",
+    "ui.hide-col.rel":  "hide-rel",
+    "ui.hide-col.qual": "hide-qual",
+    "ui.hide-col.tgt":  "hide-tgt",
+    "ui.hide-col.date": "hide-date",
+    "ui.hide-col.from": "hide-from",
+}
+
 VIEW_DEFAULTS: dict[str, str] = {
     "tab.categories":          "categories",
     "tab.bindings":            "what you know",
@@ -235,20 +264,25 @@ def db_get_view_texts() -> dict[str, str]:
 
 
 def db_set_view_text(key: str, value: str) -> None:
-    """Upsert one view-text override as an IS-binding. Empty value clears it."""
+    """Upsert one view-text override as an IS-binding. Empty value clears it.
+    Writes go through AbraWriter so `created_by` is stamped (data-models
+    migration 001). Delete is direct SQL (writer has no explicit delete-
+    binding helper today)."""
     name = "view:" + key
     with conn() as c, c.cursor() as cur:
         cur.execute(
             "DELETE FROM bindings WHERE scope = %s AND name = %s AND relationship = 'IS'",
             (SCOPE, name),
         )
-        if value:
-            cur.execute(
-                "INSERT INTO bindings "
-                "(scope, name, relationship, target_type, target_ref, qualifier) "
-                "VALUES (%s, %s, 'IS', 'text', %s, 'view chrome override')",
-                (SCOPE, name, value),
+    if value:
+        w = AbraWriter()
+        try:
+            w.write_binding(
+                SCOPE, name, rel="IS", target_type="text", target_ref=value,
+                qualifier="view chrome override",
             )
+        finally:
+            w.close()
 
 
 def tx(key: str, overrides: dict[str, str]) -> str:
@@ -257,11 +291,15 @@ def tx(key: str, overrides: dict[str, str]) -> str:
 
 
 def apply_view_texts(html: str, overrides: dict[str, str]) -> str:
-    """Replace every `__T_<key>__` placeholder in the page with the
-    override-or-default, escaped."""
+    """Replace `__T_<key>__` with override-or-default (escaped) AND
+    `__BODY_CLASS__` with the space-joined body classes derived from
+    UI preference overrides — so the user's persisted UI state is
+    applied at first render, no flash, no JS round trip."""
     def replace(m):
         return esc(tx(m.group(1), overrides))
-    return re.sub(r"__T_([a-z][a-z0-9._]*)__", replace, html)
+    html = re.sub(r"__T_([a-z][a-z0-9._]*)__", replace, html)
+    classes = [cls for key, cls in UI_PREFS.items() if overrides.get(key) == "1"]
+    return html.replace("__BODY_CLASS__", " ".join(classes))
 
 
 def db_name_detail(name: str) -> list[dict]:
@@ -696,7 +734,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._post_create
 
         # view-text override: writes user's edit to abra as IS-binding
-        m = re.fullmatch(r"/view-text/([a-z][a-z0-9._]*)/?", path)
+        m = re.fullmatch(r"/view-text/([a-z][a-z0-9._-]*)/?", path)
         if m and method == "POST":
             key = m.group(1)
             return lambda: self._post_view_text(key)
@@ -795,11 +833,15 @@ class Handler(BaseHTTPRequestHandler):
     def _post_view_text(self, key: str) -> str:
         form = self._read_form()
         value = (form.get("value") or "").strip()
-        if key not in VIEW_DEFAULTS:
+        if key not in VIEW_DEFAULTS and key not in UI_PREFS:
             raise FormError(f"unknown view-text key: {key}")
         # Empty value clears the override and reverts to default.
         db_set_view_text(key, value)
-        return esc(value or VIEW_DEFAULTS[key])
+        # For editable text, return resolved string; for UI booleans, return
+        # the persisted value so the client can echo state.
+        if key in VIEW_DEFAULTS:
+            return esc(value or VIEW_DEFAULTS[key])
+        return esc(value)
 
     def _post_create(self) -> str:
         form = self._read_form()

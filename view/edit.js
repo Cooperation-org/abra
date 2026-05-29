@@ -63,4 +63,36 @@
   new MutationObserver(refresh).observe(document.body, {
     attributes: true, attributeFilter: ["class"],
   });
+
+  // ── Persisted UI toggles ─────────────────────────────────────────────
+  // Any element with `data-ui-pref="ui.<key>"` becomes a persisted body-
+  // class toggle. The server already applied the initial body class on
+  // page render from the persisted value; click flips it and POSTs the
+  // new state back to abra. The same view-text endpoint accepts both
+  // editable labels (free text) and ui.* (boolean as "1" / "").
+  window.UI_PREFS = {
+    "ui.show-codes":    "show-codes",
+    "ui.hide-col.rel":  "hide-rel",
+    "ui.hide-col.qual": "hide-qual",
+    "ui.hide-col.tgt":  "hide-tgt",
+    "ui.hide-col.date": "hide-date",
+    "ui.hide-col.from": "hide-from",
+  };
+  document.querySelectorAll("[data-ui-pref]").forEach(function (el) {
+    var key = el.dataset.uiPref;
+    var cls = window.UI_PREFS[key];
+    if (!cls) return;
+    el.addEventListener("click", function () {
+      var on = !document.body.classList.contains(cls);
+      document.body.classList.toggle(cls, on);
+      el.classList.toggle("hidden", on);  // for column toggles' strike-through
+      var body = new URLSearchParams();
+      body.set("value", on ? "1" : "");
+      fetch(BASE + "/view-text/" + encodeURIComponent(key), {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: body.toString(),
+      });
+    });
+  });
 })();

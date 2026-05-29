@@ -7,13 +7,12 @@
   <link rel="stylesheet" href="__BASE__/style.css">
   <script src="https://unpkg.com/htmx.org@1.9.12" integrity="sha384-ujb1lZYygJmzgSwoxRggbCHcjc0rB2XoQrxeTUQyRjrOnlCoYta87iKBWq3EsdM2" crossorigin="anonymous"></script>
 </head>
-<body>
+<body class="__BODY_CLASS__">
   <nav class="topnav">
     <a href="__BASE__/"><span class="ed" data-k="tab.categories">__T_tab.categories__</span></a>
     <a href="__BASE__/bindings/" class="active"><span class="ed" data-k="tab.bindings">__T_tab.bindings__</span></a>
     <span class="spacer"></span>
-    <button type="button" class="toggle"
-            onclick="document.body.classList.toggle('show-codes')"><span class="ed" data-k="tab.showcodes">__T_tab.showcodes__</span></button>
+    <button type="button" class="toggle" data-ui-pref="ui.show-codes"><span class="ed" data-k="tab.showcodes">__T_tab.showcodes__</span></button>
     <button type="button" class="toggle edit-toggle"
             onclick="document.body.classList.toggle('editing')"><span class="ed" data-k="tab.edit">__T_tab.edit__</span></button>
   </nav>
@@ -40,11 +39,11 @@
       </form>
 
       <div class="col-toggles">
-        <button type="button" class="ct" data-col="rel"><span class="ed" data-k="bind.col.rel">__T_bind.col.rel__</span></button>
-        <button type="button" class="ct" data-col="qual"><span class="ed" data-k="bind.col.qual">__T_bind.col.qual__</span></button>
-        <button type="button" class="ct" data-col="tgt"><span class="ed" data-k="bind.col.tgt">__T_bind.col.tgt__</span></button>
-        <button type="button" class="ct" data-col="date"><span class="ed" data-k="bind.col.date">__T_bind.col.date__</span></button>
-        <button type="button" class="ct" data-col="from"><span class="ed" data-k="bind.col.from">__T_bind.col.from__</span></button>
+        <button type="button" class="ct" data-ui-pref="ui.hide-col.rel"><span class="ed" data-k="bind.col.rel">__T_bind.col.rel__</span></button>
+        <button type="button" class="ct" data-ui-pref="ui.hide-col.qual"><span class="ed" data-k="bind.col.qual">__T_bind.col.qual__</span></button>
+        <button type="button" class="ct" data-ui-pref="ui.hide-col.tgt"><span class="ed" data-k="bind.col.tgt">__T_bind.col.tgt__</span></button>
+        <button type="button" class="ct" data-ui-pref="ui.hide-col.date"><span class="ed" data-k="bind.col.date">__T_bind.col.date__</span></button>
+        <button type="button" class="ct" data-ui-pref="ui.hide-col.from"><span class="ed" data-k="bind.col.from">__T_bind.col.from__</span></button>
       </div>
 
       <div id="binding-list">
@@ -52,16 +51,15 @@
       </div>
     </main>
     <script>
-      // Column hide/show — flips body classes that CSS listens for.
-      // Per-page session only; persistence waits for the data-models
-      // session's per-user config (see scratch.md). Not using localStorage:
-      // abra is the store, not the browser.
+      // Column toggle visual state (struck-through label when hidden) —
+      // syncs to the body classes that the server applied from persisted
+      // UI prefs. The actual toggle behaviour (click → POST → body class)
+      // lives in edit.js so it's the same code for every data-ui-pref
+      // button on the page.
       document.querySelectorAll('.col-toggles .ct').forEach(function (b) {
-        b.addEventListener('click', function () {
-          var cls = 'hide-' + b.dataset.col;
-          document.body.classList.toggle(cls);
-          b.classList.toggle('hidden', document.body.classList.contains(cls));
-        });
+        var key = b.dataset.uiPref;
+        var cls = (window.UI_PREFS || {})[key];
+        if (cls && document.body.classList.contains(cls)) b.classList.add('hidden');
       });
     </script>
 

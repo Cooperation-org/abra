@@ -7,13 +7,12 @@
   <link rel="stylesheet" href="__BASE__/style.css">
   <script src="https://unpkg.com/htmx.org@1.9.12" integrity="sha384-ujb1lZYygJmzgSwoxRggbCHcjc0rB2XoQrxeTUQyRjrOnlCoYta87iKBWq3EsdM2" crossorigin="anonymous"></script>
 </head>
-<body>
+<body class="__BODY_CLASS__">
   <nav class="topnav">
     <a href="__BASE__/" class="active"><span class="ed" data-k="tab.categories">__T_tab.categories__</span></a>
     <a href="__BASE__/bindings/"><span class="ed" data-k="tab.bindings">__T_tab.bindings__</span></a>
     <span class="spacer"></span>
-    <button type="button" class="toggle"
-            onclick="document.body.classList.toggle('show-codes')"><span class="ed" data-k="tab.showcodes">__T_tab.showcodes__</span></button>
+    <button type="button" class="toggle" data-ui-pref="ui.show-codes"><span class="ed" data-k="tab.showcodes">__T_tab.showcodes__</span></button>
     <button type="button" class="toggle edit-toggle"
             onclick="document.body.classList.toggle('editing')"><span class="ed" data-k="tab.edit">__T_tab.edit__</span></button>
   </nav>
