@@ -26,23 +26,27 @@ Endpoints
          query: user_uri, scope, kind, limit (default 50)
          → 200 [{name, value, updated_at}, ...]
 
-  POST   /labels                           attach a language label
-         body: {binding_id, label, added_by}         → 200 {ok: true}
+  POST   /labels                           attach a language label to a name
+         body: {scope, name, label, added_by, expires_at?}  → 200 {ok: true}
 
   DELETE /labels                           remove a label
-         body: {binding_id, label}                   → 200 {removed: bool}
+         body: {scope, name, label}                  → 200 {removed: bool}
 
-  GET    /labels                           labels on a binding
-         query: binding_id
-         → 200 [label, ...]
+  GET    /labels                           labels on a (scope, name)
+         query: scope, name
+         → 200 [{label, added_by, added_at, expires_at}, ...]
 
   GET    /labels/distinct                  all labels currently used in a scope
          query: scope
          → 200 [label, ...]
 
-  GET    /labels/bindings                  bindings carrying a label
-         query: scope, label, limit (default 200)
-         → 200 [binding-row, ...]
+  GET    /labels/names                     names in scope carrying a label
+         query: scope, label, limit (default 500)
+         → 200 [{name, added_by, added_at, expires_at}, ...]
+
+Labels attach to **names**, not bindings (per migration 003 / labels rethink).
+`hot_tags` is now a bridge alias for `labels.label='hot'` — writes to the
+hot_tags table mirror into labels automatically via a database trigger.
 
   GET    /healthz                          → 200 "ok"
 
@@ -122,7 +126,7 @@ class Handler(BaseHTTPRequestHandler):
             ("DELETE", "/labels"):          self._delete_labels,
             ("GET", "/labels"):             self._get_labels,
             ("GET", "/labels/distinct"):    self._get_distinct_labels,
-            ("GET", "/labels/bindings"):    self._get_bindings_by_label,
+            ("GET", "/labels/names"):       self._get_names_by_label,
         }
         return table.get((method, path))
 
@@ -176,29 +180,30 @@ class Handler(BaseHTTPRequestHandler):
         return 200, [{"name": n, "value": v, "updated_at": t} for n, v, t in rows]
 
     def _post_labels(self, qs, body):
-        binding_id, label, added_by = _require(
-            body or {}, "binding_id", "label", "added_by"
+        scope, name, label, added_by = _require(
+            body or {}, "scope", "name", "label", "added_by"
         )
-        signals.add_label(int(binding_id), label, added_by)
+        expires_at = (body or {}).get("expires_at")  # optional
+        signals.set_label(scope, name, label, added_by, expires_at)
         return 200, {"ok": True}
 
     def _delete_labels(self, qs, body):
-        binding_id, label = _require(body or {}, "binding_id", "label")
-        removed = signals.remove_label(int(binding_id), label)
+        scope, name, label = _require(body or {}, "scope", "name", "label")
+        removed = signals.remove_label(scope, name, label)
         return 200, {"removed": removed}
 
     def _get_labels(self, qs, body):
-        (binding_id,) = _require(qs, "binding_id")
-        return 200, signals.labels_for_binding(int(binding_id))
+        scope, name = _require(qs, "scope", "name")
+        return 200, signals.labels_for_name(scope, name)
 
     def _get_distinct_labels(self, qs, body):
         (scope,) = _require(qs, "scope")
         return 200, signals.distinct_labels_in_scope(scope)
 
-    def _get_bindings_by_label(self, qs, body):
+    def _get_names_by_label(self, qs, body):
         scope, label = _require(qs, "scope", "label")
-        limit = int(qs.get("limit", 200))
-        return 200, signals.bindings_by_label(scope, label, limit)
+        limit = int(qs.get("limit", 500))
+        return 200, signals.names_by_label(scope, label, limit)
 
 
 def main() -> None:
