@@ -32,12 +32,14 @@ Schema is in `impl/pgvector/setup_db.py` lines 56–62 (table
 ### Status
 
 - [x] Repo recon, schema understood
-- [x] `view/` directory created
-- [x] Static page + HTMX components (`view/index.html`, `view/style.css`)
-- [x] Minimal stdlib dev shim (`view/serve.py`) — labeled "dev only,
-      replace with the data-models session's API when ready"
-- [x] End-to-end smoke: list, edit label, add top-level, add child,
-      delete (cascade), validation errors via `HX-Retarget: #flash`
+- [x] `view/` directory + `view/serve.py` stdlib dev shim
+- [x] **categories** view (catcode tree, browse + mutate) — at
+      `/abra-view/`. Codes hidden by default; toggle in topnav to reveal.
+- [x] **people & notes** view (bindings browse) — at
+      `/abra-view/bindings/`. Top by binding-count, type-to-filter,
+      click to expand bindings + content blobs.
+- [x] Lighter chrome: narrow tab strip at the literal top of the page,
+      generous content width, friendlier headings.
 - [x] **Live at <https://demos.linkedtrust.us/abra-view/>** via local
       nginx (`/etc/nginx/app-proxies/abra-view.conf`). Registered in
       `/opt/shared/cobox/app-registry.md` with review by 2026-06-15.
@@ -110,38 +112,66 @@ client-side rendering.
 
 ### Where this is heading (Golda's north star, 2026-05-29)
 
-Catcodes is **view #1**. The end goal is that Golda can use
-abra + amebo *instead of* Claude Code: a surface that reflects her own
-thoughts and efforts, that she can talk to and that already has all her
-context. Less rebuilding-context-every-conversation, more "the system
-remembers what I care about and shows it to me."
+The end goal: Golda uses abra + amebo *instead of* Claude Code. The view
+is the surface that reflects her own thoughts and efforts. Words and
+images that make sense to **her**; codes (the `a0010101` addresses) are
+hidden by default behind a small "show codes" toggle. One mutable
+interface, full control.
 
-Coming view modules I expect to build, in this order:
+#### Done this session
 
-1. **catcodes** — done. The map of where things live.
-2. **digest** — one-screen "what should I look at today?" Hot tags first
-   (priority order, expiry visible), then names she's been about lately
-   (recent ABOUT bindings), then recent content blobs. Read-only, pull
-   from `query.cmd_hot` / equivalents in your backend.
-3. **notes-in** — a single text box: "what's on your mind?" Submits via
-   HTMX to a content-store endpoint that picks a pet name (or asks if
-   ambiguous), embeds, and binds. Plus optional hot-tag stamp.
-4. **goals** — list of names with `relationship=GOAL` (or similar; needs
-   binding-format spec input from your side). Per goal: open the
-   bindings beneath, mark progress, expire when done. Likely lives next
-   to digest.
-5. **journal** — chronological scroll of bindings + content over a
-   user-chosen window. Catches "what was I doing last Thursday?"
+1. **categories** at `/abra-view/` — catcode tree, browse + mutate.
+   Friendlier heading "your categories"; codes hidden by default.
+2. **people & notes** at `/abra-view/bindings/` — bindings browse. Top
+   by binding-count by default; type to filter by name; click a row to
+   see its bindings and linked content blobs inline.
 
-All of these are HTMX server-rendered partials served from the same
-mount as catcodes. The HTTP contract for each gets added to this scratch
-before I build it, so the data-models session has time to weigh in.
+#### Next views (roughly the order Golda asked for them)
 
-The **path to talking to abra/amebo instead of Claude Code** is the
-combination of (a) these views always being there, (b) amebo serving as
-the conversational front, (c) every conversation/event consolidating
-back into abra so the next session inherits the context. That last part
-is amebo's session (see `/home/golda/.claude/plans/okay-um-if-you-reflective-deer.md`).
+3. **this week** — what she needs to do this week, pulled from a task
+   tracker (Taiga via `mcp-taiga` is the obvious one) and pushed back
+   to it. *Mutable.* Reorder, mark done, defer. One interface, she
+   stays in control. Probably also surfaces hot tags + open goals so
+   "this week" reads as her actual focus.
+4. **digest** — one-screen "what should I look at today?" Hot tags
+   first, then names with recent activity, then recent content blobs.
+5. **notes-in** — single text box: "what's on your mind?" Submits via
+   HTMX to a content-store endpoint that embeds, picks a pet name, and
+   binds. Optionally stamps a hot tag.
+6. **goals** — names marked as goals (`relationship=GOAL` or similar —
+   needs binding-format input from data-models). Per goal: open its
+   bindings, mark progress, expire when done. May fold into **this week**.
+7. **journal** — chronological scroll of bindings + content over a
+   user-chosen window. "What was I doing last Thursday?"
+
+#### Cross-cutting, deferred
+
+- **"matters right now" / "matters long term" score knobs.** Every row,
+  every view, two small affordances to raise/lower. Right-now is
+  recency-weighted; long-term is persistent. Both feed ranking across
+  all views. Needs a data-model decision (new columns on `bindings`?
+  separate signal table?) — please weigh in here.
+- **Imports into a category.** First concrete case: Golda's `~/me`
+  writing repo, imported under a new category `golda/writing`, one
+  binding per file (or per chunk). General pattern: pick a folder/repo
+  + a target catcode → ingest each file as content + create bindings.
+  Probably belongs as a small data-models endpoint plus a button on the
+  **categories** view: *"+ import into here from a folder…"*. Needs the
+  writer URI / provenance story to be settled first.
+- **Old-data import.** Golda has older abra data on another server and
+  will bring it here. Import + dedup is its own ticket; flag schema
+  differences here when the data lands.
+- **CRM connection.** A separate session is building CRM-via-Odoo.
+  Eventually the binding-row detail will populate from real CRM contact
+  reads instead of the stale LinkedIn/Gmail snippets currently shown.
+  The bridge will be a web component the view embeds — *we just connect
+  to it.*
+
+Path to "talk to abra/amebo instead of Claude Code" = (a) these views
+always there at one URL, (b) amebo as the conversational front (see
+`/home/golda/.claude/plans/okay-um-if-you-reflective-deer.md`), (c)
+every conversation consolidating back into the map so the next day's
+view inherits the context.
 
 ---
 

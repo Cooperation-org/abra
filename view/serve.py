@@ -120,6 +120,61 @@ def db_delete(code: str) -> None:
         cur.execute("DELETE FROM catcode_registry WHERE catcode = %s", (code,))
 
 
+# ── Bindings browse — read-only ──────────────────────────────────────────
+# Scope hard-coded to 'golda' for v0; will become a picker when she wants
+# linkedtrust / untp visible too.
+SCOPE = "golda"
+
+
+def db_top_names(q: str | None, limit: int = 50) -> list[tuple[str, int, str | None, str | None]]:
+    """Names with binding count, most-recent date, and a teaser qualifier.
+    Sort: count desc, then most-recent desc. With q, filter by ILIKE."""
+    args: list = [SCOPE, SCOPE]
+    where_q = ""
+    if q:
+        where_q = "AND b.name ILIKE %s"
+        args.append(f"%{q}%")
+    sql = f"""
+        SELECT b.name,
+               COUNT(*) AS n,
+               MAX(COALESCE(b.source_date, b.created_at::date))::text AS most_recent,
+               (SELECT qualifier FROM bindings
+                WHERE scope = %s AND name = b.name AND qualifier IS NOT NULL
+                ORDER BY COALESCE(source_date, created_at::date) DESC NULLS LAST LIMIT 1) AS teaser
+        FROM bindings b
+        WHERE b.scope = %s {where_q}
+        GROUP BY b.name
+        ORDER BY n DESC, most_recent DESC NULLS LAST
+        LIMIT {int(limit)}
+    """
+    with conn() as c, c.cursor() as cur:
+        cur.execute(sql, args)
+        return cur.fetchall()
+
+
+def db_name_detail(name: str) -> list[dict]:
+    """All bindings for one name in the active scope, joined to content
+    when the binding points at a content row."""
+    # CASE-wrapped cast: prevents Postgres from evaluating ::integer on
+    # non-numeric target_refs (e.g. text targets), which would 500.
+    sql = """
+        SELECT b.id, b.relationship, b.target_type, b.target_ref, b.qualifier,
+               b.source_date::text, b.catcode, b.created_at::text, b.created_by,
+               c.source_file, c.note_date::text, c.content
+        FROM bindings b
+        LEFT JOIN content c ON c.id = (
+            CASE WHEN b.target_type = 'content' AND b.target_ref ~ '^[0-9]+$'
+                 THEN b.target_ref::integer ELSE NULL END
+        )
+        WHERE b.scope = %s AND b.name = %s
+        ORDER BY b.relationship, b.id
+    """
+    with conn() as c, c.cursor() as cur:
+        cur.execute(sql, (SCOPE, name))
+        cols = [d[0] for d in cur.description]
+        return [dict(zip(cols, row)) for row in cur.fetchall()]
+
+
 # ── HTML fragments ───────────────────────────────────────────────────────
 
 def esc(s: str | None) -> str:
@@ -129,10 +184,13 @@ def esc(s: str | None) -> str:
 def row_html(code: str, label: str) -> str:
     """One node's row (not its children) — the unit that edit returns to."""
     e = esc(code)
+    lbl = esc(label)
+    # Confirm uses the label (friendly) — codes are hidden by default in the UI.
+    confirm_label = label or code
     return (
         f'<div class="node-row" id="row-{e}">'
         f'<span class="code">{e}</span>'
-        f'<span class="label">{esc(label)}</span>'
+        f'<span class="label">{lbl}</span>'
         f'<span class="actions">'
         f'  <button type="button" hx-get="{u(f"/catcodes/{e}/edit")}"'
         f'          hx-target="#row-{e}" hx-swap="outerHTML">edit</button>'
@@ -140,7 +198,7 @@ def row_html(code: str, label: str) -> str:
         f'          hx-target="#children-{e}" hx-swap="beforeend">+ child</button>'
         f'  <button type="button" class="danger"'
         f'          hx-delete="{u(f"/catcodes/{e}/")}"'
-        f'          hx-confirm="Delete {e} and all children? This cannot be undone."'
+        f'          hx-confirm="Delete &quot;{esc(confirm_label)}&quot; and everything under it? This cannot be undone."'
         f'          hx-target="#li-{e}" hx-swap="outerHTML">delete</button>'
         f"</span>"
         f"</div>"
@@ -233,6 +291,97 @@ def error_html(message: str) -> str:
     return f'<p class="error">{esc(message)}</p>'
 
 
+# ── Bindings view fragments ──────────────────────────────────────────────
+
+def binding_list_html(rows: list[tuple], q: str | None) -> str:
+    if not rows:
+        if q:
+            return f'<p class="muted">No names match <code>{esc(q)}</code>.</p>'
+        return '<p class="muted">No bindings in this scope.</p>'
+    items = []
+    for name, n, most_recent, teaser in rows:
+        href = u(f"/names/{esc(name)}/")
+        date_str = most_recent or "—"
+        teaser_html = f'<span class="teaser">{esc(teaser)}</span>' if teaser else ""
+        items.append(
+            f'<li>'
+            f'<details class="name-card">'
+            f'<summary>'
+            f'<span class="name-text">{esc(name)}</span>'
+            f'{teaser_html}'
+            f'<span class="meta">{n}× · {esc(date_str)}</span>'
+            f'</summary>'
+            f'<div class="detail-card" '
+            f'hx-get="{href}" '
+            f'hx-trigger="toggle from:closest details once" '
+            f'hx-target="this" hx-swap="innerHTML">'
+            f'<p class="muted">Loading…</p>'
+            f'</div>'
+            f'</details>'
+            f'</li>'
+        )
+    header = f'<p class="muted">{len(rows)} name{"s" if len(rows) != 1 else ""}{" matching" if q else ""}.</p>'
+    return header + f'<ul class="binding-list">{"".join(items)}</ul>'
+
+
+def name_detail_html(name: str, rows: list[dict]) -> str:
+    if not rows:
+        return f'<p class="muted">No bindings for <code>{esc(name)}</code> in this scope.</p>'
+
+    binding_lis = []
+    content_blobs = []
+    for r in rows:
+        rel = r["relationship"]
+        qual = r.get("qualifier") or ""
+        date = r.get("source_date") or (r.get("created_at") or "")[:10] or ""
+        prov = r.get("created_by") or ""
+        target_type = r.get("target_type") or ""
+        target_ref = r.get("target_ref") or ""
+
+        if target_type == "content" and r.get("content"):
+            target_label = f"content #{target_ref}"
+            content_blobs.append({
+                "ref": target_ref,
+                "src": r.get("source_file") or "",
+                "date": r.get("note_date") or date,
+                "body": r["content"],
+            })
+        else:
+            target_label = f"{target_type}: {target_ref}" if target_type else target_ref
+
+        binding_lis.append(
+            f'<li>'
+            f'<span class="rel">{esc(rel)}</span>'
+            f'<span class="qual">{esc(qual) or "—"}</span>'
+            f'<span class="tgt" title="{esc(target_label)}">{esc(target_label)}</span>'
+            f'<span class="date">{esc(date)}</span>'
+            f'<span class="prov">{esc(prov)}</span>'
+            f'</li>'
+        )
+
+    parts = [
+        f'<p class="muted">{len(rows)} binding{"s" if len(rows) != 1 else ""}'
+        + (f" · {len(content_blobs)} content blob{'s' if len(content_blobs) != 1 else ''}" if content_blobs else "")
+        + "</p>",
+        f'<h4>bindings</h4>',
+        f'<ul class="bindings">{"".join(binding_lis)}</ul>',
+    ]
+    if content_blobs:
+        parts.append(f'<h4>content</h4>')
+        for cb in content_blobs:
+            parts.append(
+                f'<div class="content-blob">'
+                f'<header>'
+                f'<span>{esc(cb["date"]) if cb["date"] else ""}</span>'
+                f'<span>{esc(cb["src"])}</span>'
+                f'<span class="muted">#{esc(cb["ref"])}</span>'
+                f'</header>'
+                f'<div class="body">{esc(cb["body"])}</div>'
+                f'</div>'
+            )
+    return "".join(parts)
+
+
 # ── request handler ──────────────────────────────────────────────────────
 
 class Handler(BaseHTTPRequestHandler):
@@ -279,8 +428,19 @@ class Handler(BaseHTTPRequestHandler):
         # static
         if method == "GET" and path == "/":
             return lambda: (HERE / "index.html").read_text().replace("__BASE__", BASE)
+        if method == "GET" and path in ("/bindings", "/bindings/"):
+            return lambda: (HERE / "bindings.html").read_text().replace("__BASE__", BASE)
         if method == "GET" and path == "/style.css":
             return lambda: self._static("style.css", "text/css")
+
+        # bindings browse
+        if method == "GET" and path == "/bindings/list":
+            return lambda: self._bindings_list()
+        m_name = re.fullmatch(r"/names/([^/]{1,200})/?", path)
+        if m_name and method == "GET":
+            from urllib.parse import unquote
+            name = unquote(m_name.group(1))
+            return lambda: self._name_detail(name)
 
         # tree + new-top
         if method == "GET" and path == "/catcodes/tree":
@@ -343,6 +503,17 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     # handlers
+    def _bindings_list(self) -> str:
+        from urllib.parse import parse_qs as _pq
+        qs = urlsplit(self.path).query
+        q = (_pq(qs).get("q", [""])[0] or "").strip()
+        rows = db_top_names(q or None, limit=50)
+        return binding_list_html(rows, q or None)
+
+    def _name_detail(self, name: str) -> str:
+        rows = db_name_detail(name)
+        return name_detail_html(name, rows)
+
     def _get_form_edit(self, code: str) -> str:
         row = db_get(code)
         if row is None:

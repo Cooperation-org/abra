@@ -3,14 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>abra · catcodes</title>
+  <title>abra · bindings</title>
   <link rel="stylesheet" href="__BASE__/style.css">
   <script src="https://unpkg.com/htmx.org@1.9.12" integrity="sha384-ujb1lZYygJmzgSwoxRggbCHcjc0rB2XoQrxeTUQyRjrOnlCoYta87iKBWq3EsdM2" crossorigin="anonymous"></script>
 </head>
 <body>
   <nav class="topnav">
-    <a href="__BASE__/" class="active">categories</a>
-    <a href="__BASE__/bindings/">people &amp; notes</a>
+    <a href="__BASE__/">categories</a>
+    <a href="__BASE__/bindings/" class="active">people &amp; notes</a>
     <span class="spacer"></span>
     <button type="button" class="toggle"
             onclick="document.body.classList.toggle('show-codes')">show codes</button>
@@ -18,25 +18,22 @@
 
   <div class="page">
     <header>
-      <h1>your categories</h1>
-      <p class="lead">The map of where things go. Click any row to rename, add a child, or delete its branch.</p>
+      <h1>people &amp; notes</h1>
+      <p class="lead">Sorted by how often something comes up. Type to filter. Click a row to see what you know about it.</p>
     </header>
 
     <main>
       <div id="flash" aria-live="polite"></div>
 
-      <div class="top-actions">
-        <button type="button"
-                hx-get="__BASE__/catcodes/new"
-                hx-target="#new-slot"
-                hx-swap="innerHTML">+ new top-level</button>
+      <div class="search-row">
+        <input type="search" name="q" placeholder="filter by name…" autofocus autocomplete="off"
+               hx-get="__BASE__/bindings/list"
+               hx-trigger="keyup changed delay:200ms, load"
+               hx-target="#binding-list"
+               hx-swap="innerHTML">
       </div>
-      <div id="new-slot"></div>
 
-      <div id="tree"
-           hx-get="__BASE__/catcodes/tree"
-           hx-trigger="load"
-           hx-swap="innerHTML">
+      <div id="binding-list">
         <p class="muted">Loading…</p>
       </div>
     </main>
