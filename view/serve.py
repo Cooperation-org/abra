@@ -57,7 +57,16 @@ PG = dict(
     dbname=os.getenv("PG_DATABASE", "abra"),
 )
 PORT = int(os.getenv("ABRA_VIEW_PORT", "8089"))
+# Empty when accessed directly on the port; "/abra-view" when behind the
+# team's nginx path-prefix proxy. The app generates URLs with this prefix
+# and the dispatcher strips it from incoming paths, so both modes work.
+BASE = os.getenv("ABRA_VIEW_BASE", "").rstrip("/")
 CATCODE_RE = re.compile(r"^[a-z0-9]{2,64}$")
+
+
+def u(path: str) -> str:
+    """Prepend the base path. `path` always starts with '/'."""
+    return BASE + path
 
 
 class FormError(Exception):
@@ -125,12 +134,12 @@ def row_html(code: str, label: str) -> str:
         f'<span class="code">{e}</span>'
         f'<span class="label">{esc(label)}</span>'
         f'<span class="actions">'
-        f'  <button type="button" hx-get="/catcodes/{e}/edit"'
+        f'  <button type="button" hx-get="{u(f"/catcodes/{e}/edit")}"'
         f'          hx-target="#row-{e}" hx-swap="outerHTML">edit</button>'
-        f'  <button type="button" hx-get="/catcodes/{e}/add-child"'
+        f'  <button type="button" hx-get="{u(f"/catcodes/{e}/add-child")}"'
         f'          hx-target="#children-{e}" hx-swap="beforeend">+ child</button>'
         f'  <button type="button" class="danger"'
-        f'          hx-delete="/catcodes/{e}/"'
+        f'          hx-delete="{u(f"/catcodes/{e}/")}"'
         f'          hx-confirm="Delete {e} and all children? This cannot be undone."'
         f'          hx-target="#li-{e}" hx-swap="outerHTML">delete</button>'
         f"</span>"
@@ -172,12 +181,12 @@ def edit_form_html(code: str, label: str) -> str:
     e = esc(code)
     return (
         f'<form class="edit-form" id="row-{e}"'
-        f'      hx-patch="/catcodes/{e}/"'
+        f'      hx-patch="{u(f"/catcodes/{e}/")}"'
         f'      hx-target="#row-{e}" hx-swap="outerHTML">'
         f'<label for="label-{e}">label</label>'
         f'<input type="text" id="label-{e}" name="label" value="{esc(label)}" required autofocus style="flex:1">'
         f'<button type="submit" class="primary">save</button>'
-        f'<button type="button" hx-get="/catcodes/{e}/row" hx-target="#row-{e}" hx-swap="outerHTML">cancel</button>'
+        f'<button type="button" hx-get="{u(f"/catcodes/{e}/row")}" hx-target="#row-{e}" hx-swap="outerHTML">cancel</button>'
         f"</form>"
     )
 
@@ -185,7 +194,7 @@ def edit_form_html(code: str, label: str) -> str:
 def add_top_form_html() -> str:
     return (
         '<form class="add-form" id="new-form"'
-        '      hx-post="/catcodes/"'
+        f'      hx-post="{u("/catcodes/")}"'
         '      hx-target="#tree" hx-swap="innerHTML">'
         '<label for="new-catcode">catcode</label>'
         '<input type="text" id="new-catcode" name="catcode" placeholder="e.g. a0" required pattern="[a-z0-9]{2,64}" autofocus>'
@@ -193,7 +202,7 @@ def add_top_form_html() -> str:
         '<input type="text" id="new-label" name="label" required style="flex:1">'
         '<input type="hidden" name="parent_catcode" value="">'
         '<button type="submit" class="primary">add</button>'
-        '<button type="button" hx-get="/catcodes/new/cancel" hx-target="#new-slot" hx-swap="innerHTML">cancel</button>'
+        f'<button type="button" hx-get="{u("/catcodes/new/cancel")}" hx-target="#new-slot" hx-swap="innerHTML">cancel</button>'
         "</form>"
     )
 
@@ -204,7 +213,7 @@ def add_child_form_html(parent_code: str) -> str:
     return (
         f'<li class="add-li" id="add-li-{p}">'
         f'<form class="add-form"'
-        f'      hx-post="/catcodes/"'
+        f'      hx-post="{u("/catcodes/")}"'
         f'      hx-target="#add-li-{p}" hx-swap="outerHTML">'
         f'<span class="prefix">{p}</span>'
         f'<label for="suf-{p}">suffix</label>'
@@ -213,7 +222,7 @@ def add_child_form_html(parent_code: str) -> str:
         f'<input type="text" id="lab-{p}" name="label" required style="flex:1">'
         f'<input type="hidden" name="parent_catcode" value="{p}">'
         f'<button type="submit" class="primary">add</button>'
-        f'<button type="button" hx-get="/catcodes/{p}/add-child/cancel"'
+        f'<button type="button" hx-get="{u(f"/catcodes/{p}/add-child/cancel")}"'
         f'        hx-target="#add-li-{p}" hx-swap="outerHTML">cancel</button>'
         f"</form>"
         f"</li>"
@@ -241,6 +250,10 @@ class Handler(BaseHTTPRequestHandler):
     def _dispatch(self, method: str) -> None:
         try:
             path = urlsplit(self.path).path
+            # If we're mounted under a base path (behind nginx), strip it.
+            # Both direct (BASE="") and proxied modes route the same way.
+            if BASE and path.startswith(BASE):
+                path = path[len(BASE):] or "/"
             handler = self._route(method, path)
             if handler is None:
                 return self._send(404, "text/plain", b"not found")
@@ -265,7 +278,7 @@ class Handler(BaseHTTPRequestHandler):
     def _route(self, method: str, path: str):
         # static
         if method == "GET" and path == "/":
-            return lambda: (HERE / "index.html").read_text()
+            return lambda: (HERE / "index.html").read_text().replace("__BASE__", BASE)
         if method == "GET" and path == "/style.css":
             return lambda: self._static("style.css", "text/css")
 
@@ -316,7 +329,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def _send(self, status: int, ctype: str, body: bytes,
               extra_headers: dict[str, str] | None = None) -> None:
-        if self.path == "/style.css" and status == 200:
+        # endswith — not exact match — so the prefix-mounted variant
+        # (/abra-view/style.css) still gets the right content type.
+        if self.path.endswith("/style.css") and status == 200:
             ctype = "text/css; charset=utf-8"
         self.send_response(status)
         self.send_header("Content-Type", ctype)

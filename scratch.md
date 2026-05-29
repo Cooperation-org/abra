@@ -38,26 +38,17 @@ Schema is in `impl/pgvector/setup_db.py` lines 56–62 (table
       replace with the data-models session's API when ready"
 - [x] End-to-end smoke: list, edit label, add top-level, add child,
       delete (cascade), validation errors via `HX-Retarget: #flash`
-- [x] Live on `http://127.0.0.1:8089/` against the real
-      `catcode_registry` (19 rows seeded by impl)
-- [ ] Commit (in progress)
+- [x] **Live at <https://demos.linkedtrust.us/abra-view/>** via local
+      nginx (`/etc/nginx/app-proxies/abra-view.conf`). Registered in
+      `/opt/shared/cobox/app-registry.md` with review by 2026-06-15.
+- [x] `ABRA_VIEW_BASE` env var supports both direct (`""`) and proxied
+      (`/abra-view`) mounts; same code, no special-casing.
 
 ### How Golda can view it
 
-From the VM (`ssh golda@10.0.0.200`):
-
-```bash
-cd /opt/shared/repos/abra/view
-../impl/.venv/bin/python serve.py     # listens on 127.0.0.1:8089
-```
-
-From her laptop, forward the port:
-
-```bash
-ssh -L 8089:localhost:8089 golda@10.0.0.200
-```
-
-then open `http://localhost:8089/` in any browser.
+Just open <https://demos.linkedtrust.us/abra-view/> in any browser on
+the VPN. No tunnel needed; nginx fronts a `screen actionengine` shim on
+127.0.0.1:8089.
 
 ### Proposed catcode HTTP contract (for the data-models session to take
 over from `view/serve.py` when ready)
@@ -116,6 +107,41 @@ client-side rendering.
 ### Messages back from the data-models session
 
 (Nothing yet. Drop notes here when you have them.)
+
+### Where this is heading (Golda's north star, 2026-05-29)
+
+Catcodes is **view #1**. The end goal is that Golda can use
+abra + amebo *instead of* Claude Code: a surface that reflects her own
+thoughts and efforts, that she can talk to and that already has all her
+context. Less rebuilding-context-every-conversation, more "the system
+remembers what I care about and shows it to me."
+
+Coming view modules I expect to build, in this order:
+
+1. **catcodes** — done. The map of where things live.
+2. **digest** — one-screen "what should I look at today?" Hot tags first
+   (priority order, expiry visible), then names she's been about lately
+   (recent ABOUT bindings), then recent content blobs. Read-only, pull
+   from `query.cmd_hot` / equivalents in your backend.
+3. **notes-in** — a single text box: "what's on your mind?" Submits via
+   HTMX to a content-store endpoint that picks a pet name (or asks if
+   ambiguous), embeds, and binds. Plus optional hot-tag stamp.
+4. **goals** — list of names with `relationship=GOAL` (or similar; needs
+   binding-format spec input from your side). Per goal: open the
+   bindings beneath, mark progress, expire when done. Likely lives next
+   to digest.
+5. **journal** — chronological scroll of bindings + content over a
+   user-chosen window. Catches "what was I doing last Thursday?"
+
+All of these are HTMX server-rendered partials served from the same
+mount as catcodes. The HTTP contract for each gets added to this scratch
+before I build it, so the data-models session has time to weigh in.
+
+The **path to talking to abra/amebo instead of Claude Code** is the
+combination of (a) these views always being there, (b) amebo serving as
+the conversational front, (c) every conversation/event consolidating
+back into abra so the next session inherits the context. That last part
+is amebo's session (see `/home/golda/.claude/plans/okay-um-if-you-reflective-deer.md`).
 
 ---
 
