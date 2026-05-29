@@ -71,7 +71,10 @@ def setup():
     """)
     print("Table: catcode_registry")
 
-    # Content table — where blobs live
+    # Content table — where blobs live.
+    # catcode (singular, legacy) is kept; catcodes (array, spec-current) is the
+    # one new code should read. Migration 001 adds catcodes + created_by to
+    # existing DBs; fresh installs include them here.
     cur.execute(f"""
         CREATE TABLE IF NOT EXISTS content (
             id SERIAL PRIMARY KEY,
@@ -80,12 +83,15 @@ def setup():
             embedding vector({EMBEDDING_DIM}),
             note_date DATE,
             catcode VARCHAR(64),
+            catcodes TEXT[],
+            created_by TEXT,
             created_at TIMESTAMP DEFAULT NOW()
         )
     """)
     print("Table: content")
 
-    # Bindings table — the core of abra
+    # Bindings table — the core of abra.
+    # See note above on catcode vs catcodes.
     cur.execute("""
         CREATE TABLE IF NOT EXISTS bindings (
             id SERIAL PRIMARY KEY,
@@ -98,6 +104,8 @@ def setup():
             permanence VARCHAR(20) DEFAULT 'CURRENT',
             source_date DATE,
             catcode VARCHAR(64),
+            catcodes TEXT[],
+            created_by TEXT,
             created_at TIMESTAMP DEFAULT NOW()
         )
     """)
@@ -126,6 +134,9 @@ def setup():
     cur.execute("CREATE INDEX IF NOT EXISTS idx_bindings_target ON bindings(target_type, target_ref)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_bindings_source_date ON bindings(source_date)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_bindings_catcode ON bindings(catcode)")
+    # GIN indexes for fast array-membership lookups on the multi-catcode column
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_content_catcodes_gin ON content USING gin (catcodes)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_bindings_catcodes_gin ON bindings USING gin (catcodes)")
     print("Indexes created")
 
     cur.close()

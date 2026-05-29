@@ -49,19 +49,36 @@ def check_pii(text):
     return False
 
 
+def _default_writer_uri():
+    """URI representing the writer when none is supplied.
+    Looks up env ABRA_WRITER_URI first, falls back to urn:abra:local:<USER>."""
+    env = os.getenv("ABRA_WRITER_URI")
+    if env:
+        return env
+    user = os.getenv("USER") or os.getenv("USERNAME") or "unknown"
+    return f"urn:abra:local:{user}"
+
+
 class AbraWriter:
-    def __init__(self):
+    def __init__(self, writer_uri=None):
+        """writer_uri identifies who is writing (provenance, per 2026-05 design).
+        Defaults to ABRA_WRITER_URI env or urn:abra:local:<USER>."""
+        self.writer_uri = writer_uri or _default_writer_uri()
         self.conn = psycopg2.connect(
             host=PG_HOST, port=PG_PORT, user=PG_USER,
             password=PG_PASSWORD, dbname=PG_DATABASE
         )
 
     def store_content(self, source_file, content, note_date=None, catcode=None):
-        """Store a content blob. Returns content ID."""
+        """Store a content blob. Returns content ID.
+        Populates both `catcode` (singular, legacy) and `catcodes` (array, current spec).
+        Stamps created_by from self.writer_uri."""
         cur = self.conn.cursor()
+        catcodes = [catcode] if catcode else []
         cur.execute(
-            "INSERT INTO content (source_file, content, note_date, catcode) VALUES (%s, %s, %s, %s) RETURNING id",
-            (source_file, content, note_date, catcode)
+            "INSERT INTO content (source_file, content, note_date, catcode, catcodes, created_by) "
+            "VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
+            (source_file, content, note_date, catcode, catcodes, self.writer_uri)
         )
         content_id = cur.fetchone()[0]
         self.conn.commit()
@@ -73,17 +90,22 @@ class AbraWriter:
                       relationship=None):
         # accept either 'rel' or 'relationship'
         relationship = rel or relationship
-        """Write a single binding. Rejects PII in target_ref."""
+        """Write a single binding. Rejects PII in target_ref.
+        Populates both `catcode` (legacy) and `catcodes` (array, current spec).
+        Stamps created_by from self.writer_uri."""
         if check_pii(target_ref):
             print(f"  REJECTED (PII detected): {name} {relationship} {target_ref[:40]}...")
             return None
 
         cur = self.conn.cursor()
+        catcodes = [catcode] if catcode else []
         cur.execute(
-            """INSERT INTO bindings (scope, name, relationship, target_type, target_ref, qualifier, permanence, source_date, catcode)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
+            """INSERT INTO bindings
+               (scope, name, relationship, target_type, target_ref, qualifier, permanence,
+                source_date, catcode, catcodes, created_by)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
             (scope, name, relationship, target_type, target_ref,
-             qualifier, permanence, source_date, catcode)
+             qualifier, permanence, source_date, catcode, catcodes, self.writer_uri)
         )
         binding_id = cur.fetchone()[0]
         self.conn.commit()
