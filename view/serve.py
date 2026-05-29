@@ -121,9 +121,8 @@ def db_delete(code: str) -> None:
 
 
 # ── Bindings browse — read-only ──────────────────────────────────────────
-# Scope hard-coded to 'golda' for v0; will become a picker when she wants
-# linkedtrust / untp visible too.
-SCOPE = "golda"
+# Default scope is configurable; future change is a scope picker in the UI.
+SCOPE = os.getenv("ABRA_VIEW_SCOPE", "golda")
 
 
 def db_top_names(q: str | None, limit: int = 50) -> list[tuple[str, int, str | None, str | None]]:
@@ -291,6 +290,61 @@ def error_html(message: str) -> str:
     return f'<p class="error">{esc(message)}</p>'
 
 
+# Linkify http(s) URLs inside a text block. Used for content blob bodies
+# where the substance is just text that may carry useful published links.
+URL_RE = re.compile(r"https?://[^\s<>\"'`]+")
+
+
+def linkify(text: str) -> str:
+    """HTML-escape, then turn http(s) URLs into clickable links.
+    Trailing punctuation that follows a URL (.,;:!?) is left outside."""
+    out: list[str] = []
+    last = 0
+    for m in URL_RE.finditer(text):
+        out.append(esc(text[last:m.start()]))
+        url = m.group(0)
+        # Don't swallow trailing punctuation into the link.
+        trim = ""
+        while url and url[-1] in ".,;:!?)”“’":
+            trim = url[-1] + trim
+            url = url[:-1]
+        if url:
+            out.append(
+                f'<a href="{esc(url)}" target="_blank" rel="noopener noreferrer">{esc(url)}</a>'
+            )
+        out.append(esc(trim))
+        last = m.end()
+    out.append(esc(text[last:]))
+    return "".join(out)
+
+
+def render_target(target_type: str, target_ref: str) -> str:
+    """A binding's target rendered usable: http(s) becomes a link, name
+    becomes an in-app link to that name's bindings, content becomes an
+    anchor to the inline blob, anything else stays as readable text."""
+    if not target_ref:
+        return ""
+    if target_type == "content":
+        return f'<a href="#content-{esc(target_ref)}">content #{esc(target_ref)}</a>'
+    if target_type == "name":
+        from urllib.parse import quote
+        href = u(f"/bindings/") + f"?q={quote(target_ref, safe='')}"
+        return f'<a href="{esc(href)}">name: {esc(target_ref)}</a>'
+    if target_type == "uri":
+        if target_ref.startswith(("http://", "https://")):
+            return (
+                f'<a href="{esc(target_ref)}" target="_blank" '
+                f'rel="noopener noreferrer">{esc(target_ref)}</a>'
+            )
+        # Non-http URIs (crm:, tasks:, did:, file:) — show plainly until
+        # the pointer-scheme registry lands and we can resolve them.
+        return f'<span class="uri">{esc(target_ref)}</span>'
+    if target_type == "text":
+        return f'<span class="text-target">{esc(target_ref)}</span>'
+    # Unknown / future target_type — render the raw value but typed.
+    return f'<span class="other-target">{esc(target_type)}: {esc(target_ref)}</span>'
+
+
 # ── Bindings view fragments ──────────────────────────────────────────────
 
 def binding_list_html(rows: list[tuple], q: str | None) -> str:
@@ -339,21 +393,18 @@ def name_detail_html(name: str, rows: list[dict]) -> str:
         target_ref = r.get("target_ref") or ""
 
         if target_type == "content" and r.get("content"):
-            target_label = f"content #{target_ref}"
             content_blobs.append({
                 "ref": target_ref,
                 "src": r.get("source_file") or "",
                 "date": r.get("note_date") or date,
                 "body": r["content"],
             })
-        else:
-            target_label = f"{target_type}: {target_ref}" if target_type else target_ref
 
         binding_lis.append(
             f'<li>'
             f'<span class="rel">{esc(rel)}</span>'
             f'<span class="qual">{esc(qual) or "—"}</span>'
-            f'<span class="tgt" title="{esc(target_label)}">{esc(target_label)}</span>'
+            f'<span class="tgt">{render_target(target_type, target_ref)}</span>'
             f'<span class="date">{esc(date)}</span>'
             f'<span class="prov">{esc(prov)}</span>'
             f'</li>'
@@ -370,13 +421,13 @@ def name_detail_html(name: str, rows: list[dict]) -> str:
         parts.append(f'<h4>content</h4>')
         for cb in content_blobs:
             parts.append(
-                f'<div class="content-blob">'
+                f'<div class="content-blob" id="content-{esc(cb["ref"])}">'
                 f'<header>'
                 f'<span>{esc(cb["date"]) if cb["date"] else ""}</span>'
                 f'<span>{esc(cb["src"])}</span>'
                 f'<span class="muted">#{esc(cb["ref"])}</span>'
                 f'</header>'
-                f'<div class="body">{esc(cb["body"])}</div>'
+                f'<div class="body">{linkify(cb["body"])}</div>'
                 f'</div>'
             )
     return "".join(parts)
@@ -429,7 +480,14 @@ class Handler(BaseHTTPRequestHandler):
         if method == "GET" and path == "/":
             return lambda: (HERE / "index.html").read_text().replace("__BASE__", BASE)
         if method == "GET" and path in ("/bindings", "/bindings/"):
-            return lambda: (HERE / "bindings.html").read_text().replace("__BASE__", BASE)
+            from urllib.parse import parse_qs as _pq
+            qs = urlsplit(self.path).query
+            q = (_pq(qs).get("q", [""])[0] or "").strip()
+            return lambda: (
+                (HERE / "bindings.html").read_text()
+                .replace("__BASE__", BASE)
+                .replace("__Q__", esc(q))
+            )
         if method == "GET" and path == "/style.css":
             return lambda: self._static("style.css", "text/css")
 

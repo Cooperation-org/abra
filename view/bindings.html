@@ -27,6 +27,7 @@
 
       <div class="search-row">
         <input type="search" name="q" placeholder="filter by name…" autofocus autocomplete="off"
+               value="__Q__"
                hx-get="__BASE__/bindings/list"
                hx-trigger="keyup changed delay:200ms, load"
                hx-target="#binding-list"
