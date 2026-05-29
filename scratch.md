@@ -441,6 +441,81 @@ When you want, I'll land in one commit:
 
 Both nullable / no impact on existing tables. No backfill needed. Will be in `impl/pgvector/migrations/002_user_config_and_signals.py`. Holler.
 
+### Migration 002 applied + scoring endpoint live (commit `c07505a`)
+
+**Schema (additive — no impact on existing tables):**
+- `user_config(user_uri, key, value JSONB, updated_at)` — per-user view config
+- `user_signal(user_uri, scope, name, score_kind, value, updated_at)` — per-user scoring (kind = `now` | `long`)
+- `binding_labels(binding_id, label, added_by, added_at)` — **TENTATIVE, see Labels rethink below**
+
+Grants on the new tables given to `abra_user` so the daily app connection can read/write.
+
+**Helpers:** `impl/pgvector/signals.py` — pure Python, also a CLI for spot checks.
+
+**HTTP service:** `impl/backend/scoring_server.py` on `127.0.0.1:8090`. JSON in, JSON out. Endpoints:
+
+```
+POST   /signals               body: {user_uri, scope, name, kind, value}      → {ok: true}
+DELETE /signals               body: {user_uri, scope, name, kind}             → {removed: bool}
+GET    /signals/ranked?user_uri=&scope=&kind=&limit=                         → [{name, value, updated_at}]
+
+POST   /labels                body: {binding_id, label, added_by}             → {ok: true}      ← see rethink
+DELETE /labels                body: {binding_id, label}                       → {removed: bool}  ← see rethink
+GET    /labels?binding_id=                                                   → [label, ...]    ← see rethink
+GET    /labels/distinct?scope=                                               → [label, ...]
+GET    /labels/bindings?scope=&label=&limit=                                 → [binding-row]
+
+GET    /healthz                                                              → "ok"
+```
+
+Not yet running as a systemd unit — start manually with `impl/.venv/bin/python impl/backend/scoring_server.py`. Mount under `/abra-view/signals/` in nginx whenever you're ready, or call `127.0.0.1:8090` directly from `view/serve.py`.
+
+### Labels rethink — your input is right, mine was probably wrong
+
+I just read your "Architectural input from Golda" section. You're flagging the question I should have stopped to think about before shipping: **labels on bindings or labels on names?**
+
+I shipped `binding_labels(binding_id, label, …)` — labels per binding row.
+
+Re-thinking carefully:
+
+- abra's primary unit of meaning is the **pet name** (the handle, the language word).
+- `hot_tags` already keys on `(scope, name)` — labels-on-names is the established pattern.
+- Natural language: *"peter is a contact"*, *"ltq1 is a goal"*, *"prepare-deck is a todo"* — these are statements about the **name**, not about a specific binding row underneath it.
+- `qualifier` already exists per-binding for short context phrases ("stack for", "candidate for"). That's the binding-level annotation slot. Labels stacking on top would duplicate that role.
+
+So I think you're right. The correct shape is:
+
+```sql
+CREATE TABLE labels (
+    scope       VARCHAR(255) NOT NULL,
+    name        VARCHAR(255) NOT NULL,
+    label       TEXT         NOT NULL,
+    added_by    TEXT         NOT NULL,        -- writer URI (provenance)
+    added_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    expires_at  TIMESTAMPTZ,                  -- optional, mirrors hot_tags
+    PRIMARY KEY (scope, name, label)
+);
+CREATE INDEX idx_labels_label ON labels (label);
+CREATE INDEX idx_labels_scope_name ON labels (scope, name);
+```
+
+**Answers to your 7 questions** (drafted, not committed):
+
+1. **Where do labels attach?** On **names**, not bindings. Names are the conceptual units. Bindings are the underlying facts.
+2. **Multiple per name?** Yes. Order not significant (use timestamps or arbitrary).
+3. **Same label across scopes?** Independent. `hot` in `golda` is a different row than `hot` in `linkedtrust`. Same shape, separate data.
+4. **Author of the label?** Yes — `added_by` URI (same shape as `created_by` on bindings).
+5. **Expiry?** Optional `expires_at` column. NULL means permanent. Mirrors `hot_tags`.
+6. **Storage shape?** The new `labels` table above. Not `bindings.labels TEXT[]` (per-binding, wrong unit). Not `relationship='LABEL'` (overloads relationship; relationships are structural).
+7. **Migrate `hot_tags`?** Yes, eventually. `hot_tags` becomes `labels` with `label='hot'`. Migration 003 would copy rows and rename. Keep `hot_tags` table for one cycle as alias if you want zero-downtime.
+
+**What this means for what I just shipped:**
+
+- `binding_labels` table exists in the DB but has zero rows. Recommend dropping in migration 003 alongside adding `labels(scope, name, …)`. Or leave it as an alternate per-binding label slot if you ever want it later — I'd just drop.
+- The `/labels*` endpoints in `scoring_server.py` were written against `binding_labels`. They'll need to be rewritten against `labels(scope, name)` — different keys. The scoring endpoints (`/signals*`) are unaffected, those are correct.
+
+**Hold for Golda + view-session ack before I land migration 003.** This is the kind of change I should not run ahead on. Flagging here.
+
 ### Typed targets — important requirement (Golda, 2026-05-29)
 
 Web components in your views must be able to **usefully connect** to typed entities — e.g. when a binding's target is an Odoo CRM contact, the component should fetch the contact from Odoo and render it as a proper contact widget, not as a raw URI string.
