@@ -18,26 +18,64 @@
 
   <div class="page">
     <header>
-      <h1>people &amp; notes</h1>
-      <p class="lead">Sorted by how often something comes up. Type to filter. Click a row to see what you know about it.</p>
+      <h1>what you know</h1>
+      <p class="lead">Type to find a name. Click a row to open it.</p>
     </header>
 
     <main>
       <div id="flash" aria-live="polite"></div>
 
-      <div class="search-row">
-        <input type="search" name="q" placeholder="filter by name…" autofocus autocomplete="off"
-               value="__Q__"
-               hx-get="__BASE__/bindings/list"
-               hx-trigger="keyup changed delay:200ms, load"
-               hx-target="#binding-list"
-               hx-swap="innerHTML">
+      __CHIP__
+
+      <form class="search-row"
+            hx-get="__BASE__/bindings/list"
+            hx-trigger="keyup changed delay:200ms from:input[name=q], load"
+            hx-target="#binding-list"
+            hx-swap="innerHTML">
+        <input type="search" name="q" placeholder="find a name…" autofocus autocomplete="off" value="__Q__">
+        <input type="hidden" name="catcode" value="__CATCODE__">
+        <input type="hidden" name="hot" value="__HOT__">
+      </form>
+
+      <div class="col-toggles">
+        <button type="button" class="ct" data-col="rel">kind</button>
+        <button type="button" class="ct" data-col="qual">what</button>
+        <button type="button" class="ct" data-col="tgt">where</button>
+        <button type="button" class="ct" data-col="date">when</button>
+        <button type="button" class="ct" data-col="from">from</button>
       </div>
 
       <div id="binding-list">
         <p class="muted">Loading…</p>
       </div>
     </main>
+    <script>
+      // Column hide/show — flips body classes that CSS listens for.
+      // Snappy (no network), persisted in localStorage so refresh keeps it.
+      // Per-device for now; will move to per-user backend config when the
+      // data-models session lands the user_config story.
+      (function () {
+        var KEY = 'abra-view.hidden-cols';
+        var hidden = new Set(JSON.parse(localStorage.getItem(KEY) || '[]'));
+        hidden.forEach(function (col) {
+          document.body.classList.add('hide-' + col);
+        });
+        document.querySelectorAll('.col-toggles .ct').forEach(function (b) {
+          var col = b.dataset.col;
+          if (hidden.has(col)) b.classList.add('hidden');
+          b.addEventListener('click', function () {
+            var cls = 'hide-' + col;
+            document.body.classList.toggle(cls);
+            if (document.body.classList.contains(cls)) {
+              hidden.add(col); b.classList.add('hidden');
+            } else {
+              hidden.delete(col); b.classList.remove('hidden');
+            }
+            localStorage.setItem(KEY, JSON.stringify(Array.from(hidden)));
+          });
+        });
+      })();
+    </script>
 
     <footer>
       <p class="muted">

@@ -125,14 +125,38 @@ def db_delete(code: str) -> None:
 SCOPE = os.getenv("ABRA_VIEW_SCOPE", "golda")
 
 
-def db_top_names(q: str | None, limit: int = 50) -> list[tuple[str, int, str | None, str | None]]:
+def db_top_names(q: str | None, catcode: str | None, hot: bool = False,
+                 limit: int = 50) -> list[tuple[str, int, str | None, str | None]]:
     """Names with binding count, most-recent date, and a teaser qualifier.
-    Sort: count desc, then most-recent desc. With q, filter by ILIKE."""
+    Sort: count desc, then most-recent desc.
+    Filters stack: q is name substring; catcode is prefix-match against the
+    hierarchical catcode address (so `a001` returns the full subtree); hot
+    filters to names currently in `hot_tags` for the scope."""
     args: list = [SCOPE, SCOPE]
-    where_q = ""
+    where = ""
     if q:
-        where_q = "AND b.name ILIKE %s"
+        where += " AND b.name ILIKE %s"
         args.append(f"%{q}%")
+    if hot:
+        where += """
+            AND b.name IN (
+                SELECT name FROM hot_tags
+                WHERE scope = %s AND (expires_at IS NULL OR expires_at > NOW())
+            )
+        """
+        args.append(SCOPE)
+    if catcode:
+        # Multi-category: a binding can live under several catcodes
+        # (`catcodes TEXT[]` per data-models migration 001). Prefix match
+        # against any element gives subtree filtering. COALESCE keeps any
+        # pre-migration rows that only carried the legacy single catcode.
+        where += """
+            AND EXISTS (
+                SELECT 1 FROM unnest(COALESCE(b.catcodes, ARRAY[b.catcode])) cc
+                WHERE cc LIKE %s
+            )
+        """
+        args.append(catcode + "%")
     sql = f"""
         SELECT b.name,
                COUNT(*) AS n,
@@ -141,7 +165,7 @@ def db_top_names(q: str | None, limit: int = 50) -> list[tuple[str, int, str | N
                 WHERE scope = %s AND name = b.name AND qualifier IS NOT NULL
                 ORDER BY COALESCE(source_date, created_at::date) DESC NULLS LAST LIMIT 1) AS teaser
         FROM bindings b
-        WHERE b.scope = %s {where_q}
+        WHERE b.scope = %s {where}
         GROUP BY b.name
         ORDER BY n DESC, most_recent DESC NULLS LAST
         LIMIT {int(limit)}
@@ -149,6 +173,13 @@ def db_top_names(q: str | None, limit: int = 50) -> list[tuple[str, int, str | N
     with conn() as c, c.cursor() as cur:
         cur.execute(sql, args)
         return cur.fetchall()
+
+
+def db_catcode_label(code: str) -> str | None:
+    with conn() as c, c.cursor() as cur:
+        cur.execute("SELECT label FROM catcode_registry WHERE catcode = %s", (code,))
+        row = cur.fetchone()
+        return row[0] if row else None
 
 
 def db_name_detail(name: str) -> list[dict]:
@@ -180,16 +211,32 @@ def esc(s: str | None) -> str:
     return html.escape(s or "", quote=True)
 
 
+def link_for_category(code: str, label: str) -> str:
+    """Where clicking a category label goes.
+
+    Convention: a label that ends in `/hot` (or is exactly `hot`) is a
+    portal to the hot-tag lens — the bindings page in hot-only mode.
+    All other labels link to their subtree of bindings. The convention
+    is intentional so the user can move the "hot" portal around by
+    renaming a category, with nothing hardcoded.
+    """
+    lower = (label or "").lower()
+    if lower == "hot" or lower.endswith("/hot"):
+        return u("/bindings/") + "?hot=1"
+    return u("/bindings/") + f"?catcode={code}"
+
+
 def row_html(code: str, label: str) -> str:
     """One node's row (not its children) — the unit that edit returns to."""
     e = esc(code)
     lbl = esc(label)
+    href = esc(link_for_category(code, label))
     # Confirm uses the label (friendly) — codes are hidden by default in the UI.
     confirm_label = label or code
     return (
         f'<div class="node-row" id="row-{e}">'
         f'<span class="code">{e}</span>'
-        f'<span class="label">{lbl}</span>'
+        f'<a class="label" href="{href}">{lbl}</a>'
         f'<span class="actions">'
         f'  <button type="button" hx-get="{u(f"/catcodes/{e}/edit")}"'
         f'          hx-target="#row-{e}" hx-swap="outerHTML">edit</button>'
@@ -325,7 +372,9 @@ def render_target(target_type: str, target_ref: str) -> str:
     if not target_ref:
         return ""
     if target_type == "content":
-        return f'<a href="#content-{esc(target_ref)}">content #{esc(target_ref)}</a>'
+        # The accordion <details> is the row itself; clicking the summary
+        # opens the content below, so we don't need a scroll-anchor link.
+        return f'<span class="content-ref">note</span>'
     if target_type == "name":
         from urllib.parse import quote
         href = u(f"/bindings/") + f"?q={quote(target_ref, safe='')}"
@@ -347,11 +396,18 @@ def render_target(target_type: str, target_ref: str) -> str:
 
 # ── Bindings view fragments ──────────────────────────────────────────────
 
-def binding_list_html(rows: list[tuple], q: str | None) -> str:
+def binding_list_html(rows: list[tuple], q: str | None,
+                      catcode: str | None = None, hot: bool = False) -> str:
     if not rows:
+        if hot:
+            return '<p class="muted">Nothing is hot right now.</p>'
+        if catcode and q:
+            return f'<p class="muted">No names match <code>{esc(q)}</code> in this category.</p>'
+        if catcode:
+            return '<p class="muted">No names in this category yet.</p>'
         if q:
             return f'<p class="muted">No names match <code>{esc(q)}</code>.</p>'
-        return '<p class="muted">No bindings in this scope.</p>'
+        return '<p class="muted">No names yet in this scope.</p>'
     items = []
     for name, n, most_recent, teaser in rows:
         href = u(f"/names/{esc(name)}/")
@@ -379,11 +435,15 @@ def binding_list_html(rows: list[tuple], q: str | None) -> str:
 
 
 def name_detail_html(name: str, rows: list[dict]) -> str:
+    """One name's detail. Each binding is its own row; bindings that point
+    at a content blob accordion the blob inline beneath the row, so
+    expanding a row never jumps the page. Columns (rel/qual/tgt/date/from)
+    can be hidden/shown via the toggles in the page chrome."""
     if not rows:
         return f'<p class="muted">No bindings for <code>{esc(name)}</code> in this scope.</p>'
 
-    binding_lis = []
-    content_blobs = []
+    items: list[str] = []
+    content_count = 0
     for r in rows:
         rel = r["relationship"]
         qual = r.get("qualifier") or ""
@@ -392,45 +452,44 @@ def name_detail_html(name: str, rows: list[dict]) -> str:
         target_type = r.get("target_type") or ""
         target_ref = r.get("target_ref") or ""
 
-        if target_type == "content" and r.get("content"):
-            content_blobs.append({
-                "ref": target_ref,
-                "src": r.get("source_file") or "",
-                "date": r.get("note_date") or date,
-                "body": r["content"],
-            })
+        has_content = target_type == "content" and r.get("content")
+        if has_content:
+            content_count += 1
 
-        binding_lis.append(
-            f'<li>'
-            f'<span class="rel">{esc(rel)}</span>'
-            f'<span class="qual">{esc(qual) or "—"}</span>'
-            f'<span class="tgt">{render_target(target_type, target_ref)}</span>'
-            f'<span class="date">{esc(date)}</span>'
-            f'<span class="prov">{esc(prov)}</span>'
-            f'</li>'
+        cols = (
+            f'<span class="col-rel">{esc(rel)}</span>'
+            f'<span class="col-qual">{esc(qual) or "—"}</span>'
+            f'<span class="col-tgt">{render_target(target_type, target_ref)}</span>'
+            f'<span class="col-date">{esc(date)}</span>'
+            f'<span class="col-from">{esc(prov)}</span>'
         )
 
-    parts = [
-        f'<p class="muted">{len(rows)} binding{"s" if len(rows) != 1 else ""}'
-        + (f" · {len(content_blobs)} content blob{'s' if len(content_blobs) != 1 else ''}" if content_blobs else "")
-        + "</p>",
-        f'<h4>bindings</h4>',
-        f'<ul class="bindings">{"".join(binding_lis)}</ul>',
-    ]
-    if content_blobs:
-        parts.append(f'<h4>content</h4>')
-        for cb in content_blobs:
-            parts.append(
-                f'<div class="content-blob" id="content-{esc(cb["ref"])}">'
+        if has_content:
+            ref = esc(target_ref)
+            src = esc(r.get("source_file") or "")
+            cdate = esc(r.get("note_date") or date)
+            items.append(
+                f'<details class="bind-row has-content" id="content-{ref}">'
+                f'<summary>{cols}</summary>'
+                f'<div class="content-blob">'
                 f'<header>'
-                f'<span>{esc(cb["date"]) if cb["date"] else ""}</span>'
-                f'<span>{esc(cb["src"])}</span>'
-                f'<span class="muted">#{esc(cb["ref"])}</span>'
+                f'<span>{cdate}</span>'
+                f'<span>{src}</span>'
+                f'<span class="muted">#{ref}</span>'
                 f'</header>'
-                f'<div class="body">{linkify(cb["body"])}</div>'
+                f'<div class="body">{linkify(r["content"])}</div>'
                 f'</div>'
+                f'</details>'
             )
-    return "".join(parts)
+        else:
+            items.append(f'<div class="bind-row">{cols}</div>')
+
+    header = (
+        f'<p class="muted">{len(rows)} binding{"s" if len(rows) != 1 else ""}'
+        + (f" · {content_count} with content" if content_count else "")
+        + "</p>"
+    )
+    return header + f'<div class="bindings">{"".join(items)}</div>'
 
 
 # ── request handler ──────────────────────────────────────────────────────
@@ -482,11 +541,26 @@ class Handler(BaseHTTPRequestHandler):
         if method == "GET" and path in ("/bindings", "/bindings/"):
             from urllib.parse import parse_qs as _pq
             qs = urlsplit(self.path).query
-            q = (_pq(qs).get("q", [""])[0] or "").strip()
+            params = _pq(qs)
+            q = (params.get("q", [""])[0] or "").strip()
+            catcode = (params.get("catcode", [""])[0] or "").strip()
+            hot = (params.get("hot", [""])[0] or "").strip() == "1"
+            chip = ""
+            if hot:
+                chip = self._chip_html("filtered: hot only", clear_qs="")
+            elif catcode:
+                label = db_catcode_label(catcode) or catcode
+                chip = self._chip_html(
+                    f"filtered: {label}",
+                    clear_qs="?q=" + (q or "") if q else "",
+                )
             return lambda: (
                 (HERE / "bindings.html").read_text()
                 .replace("__BASE__", BASE)
                 .replace("__Q__", esc(q))
+                .replace("__CATCODE__", esc(catcode))
+                .replace("__HOT__", "1" if hot else "")
+                .replace("__CHIP__", chip)
             )
         if method == "GET" and path == "/style.css":
             return lambda: self._static("style.css", "text/css")
@@ -564,9 +638,21 @@ class Handler(BaseHTTPRequestHandler):
     def _bindings_list(self) -> str:
         from urllib.parse import parse_qs as _pq
         qs = urlsplit(self.path).query
-        q = (_pq(qs).get("q", [""])[0] or "").strip()
-        rows = db_top_names(q or None, limit=50)
-        return binding_list_html(rows, q or None)
+        params = _pq(qs)
+        q = (params.get("q", [""])[0] or "").strip()
+        catcode = (params.get("catcode", [""])[0] or "").strip()
+        hot = (params.get("hot", [""])[0] or "").strip() == "1"
+        rows = db_top_names(q or None, catcode or None, hot=hot, limit=50)
+        return binding_list_html(rows, q or None, catcode=catcode or None, hot=hot)
+
+    def _chip_html(self, text: str, clear_qs: str = "") -> str:
+        href = u("/bindings/") + (clear_qs or "")
+        return (
+            f'<div class="filter-chip">'
+            f'<span>{esc(text)}</span>'
+            f'<a href="{esc(href)}" title="clear filter" class="clear">×</a>'
+            f'</div>'
+        )
 
     def _name_detail(self, name: str) -> str:
         rows = db_name_detail(name)

@@ -106,6 +106,57 @@ client-side rendering.
 - Reserved namespaces (`01`, `02`): do we forbid edit/delete on those
   (they're the spec-defined roots) or just warn?
 
+### New needs from data-models, surfaced this session (2026-05-29 pm)
+
+These come from Golda directly while I was building the bindings view.
+They're shape questions, not blockers; please weigh in here.
+
+1. **Per-user rich config.** Headline principle: **everything Golda sees,
+   she can edit.** Hidden columns, tab labels (she should be able to
+   rename "categories" or "what you know" to anything), sort order,
+   filter defaults, which views exist, what hot-key sets a category as
+   the "hot" portal — all of it. The view currently persists column
+   visibility in `localStorage` as a temporary device-local stand-in;
+   the long-term home is a per-user `user_config` row (JSON?). What
+   shape do you want? View will read on render and POST diffs back.
+
+2. **Draggable rows + persistent scores.** Same row, two affordances:
+   "matters right now" (recency-weighted) and "matters long term"
+   (persistent). Both feed sort across all views. Need somewhere to
+   write the score. Two shapes worth considering — your call:
+   - **a)** new columns on `bindings`: `score_now FLOAT`,
+     `score_long FLOAT`. Simple, fast reads. Downside: score is a
+     per-user signal, but `bindings` is multi-user / multi-writer.
+     Probably wrong if you keep that invariant.
+   - **b)** separate `user_signal` table:
+     `(user_uri, scope, name, score_kind, value, updated_at)`. Cleaner.
+     One row per (user, name, kind). View POSTs reorder events; you
+     compute scores and the view reads `score_now`, `score_long` columns
+     on a per-user view / materialized join.
+3. **Goals representation.** I'll add a goals view but it needs a way
+   to mark a name as a goal: relationship type `GOAL`? A reserved
+   catcode? A binding qualifier? Picking one keeps me consistent.
+4. **Heading naming.** Golda flagged that "people & notes" is too
+   narrow — bindings can be goals, ideas, places, anything. I renamed
+   the heading to "what you know" for now. When the per-user-config
+   work lands, all tab/heading text moves into config.
+5. **`golda/hot` portal convention.** The view recognizes category
+   labels that end in `/hot` (or equal `hot`) as a link to the hot-tag
+   filter (`/bindings/?hot=1`), not the regular subtree filter. This
+   means Golda can move the portal anywhere just by renaming a category.
+   Heads-up only — no schema change needed.
+
+### View-side state (for your reference)
+
+- Multi-category filter is live: `db_top_names` does
+  `EXISTS (SELECT 1 FROM unnest(COALESCE(catcodes, ARRAY[catcode])) cc
+  WHERE cc LIKE 'prefix%')` so a binding tagged with multiple catcodes
+  shows up under each one. Uses your migration 001's `catcodes TEXT[]`.
+- Filtered URLs: `?q=<name>` (substring), `?catcode=<code>` (prefix),
+  `?hot=1` (in `hot_tags`). All three stack.
+- Per-binding accordion: content blob renders INLINE under its binding
+  row, not jumped to from a link.
+
 ### Messages back from the data-models session
 
 (Nothing yet. Drop notes here when you have them.)
