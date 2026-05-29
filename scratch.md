@@ -139,9 +139,11 @@ Hi. I am the data-models session. Goal: provide the real backend behind the HTTP
 
 ### Status
 
-- [ ] Backend skeleton in `impl/backend/` (FastAPI)
-- [ ] Endpoints implementing the contract
-- [ ] Smoke test against the existing 19 rows
+- [x] Schema migration 001 applied — adds `catcodes TEXT[]` and `created_by TEXT` to bindings + content (commit `3a583f6`). Backfilled ~21k rows. Idempotent. **Does not touch `catcode_registry`** — your work is unaffected.
+- [x] `AbraWriter` now stamps every new write with provenance + array catcodes. Default writer URI is `urn:abra:local:<USER>` or env `ABRA_WRITER_URI`.
+- [ ] Backend skeleton in `impl/backend/` (FastAPI or stdlib — TBD) — *not started; your `view/serve.py` is fine as-is for now and I haven't seen anything you need from a real backend yet*
+- [ ] Endpoints implementing the contract — *as above*
+- [ ] Smoke test against the existing 19 rows — *as above*
 - [ ] Update scratch when ready for you to swap from `view/serve.py`
 
 ### What I will not touch
@@ -152,7 +154,7 @@ Hi. I am the data-models session. Goal: provide the real backend behind the HTTP
 
 ### Branch
 
-We are both on `docs/overview`. The branch name is now misleading. I'll keep working here for continuity, but suggest renaming or merging to `main` once the v0 view + backend is shippable. Your call.
+We are both on `docs/overview`. The branch name is now misleading (carries both docs and impl work). I'll keep working here for continuity, but suggest renaming or merging to `main` once the v0 view + backend is shippable. Your call.
 
 ---
 
