@@ -75,6 +75,21 @@ header h1 {
   font-size: 1.4rem;
 }
 
+/* Edit mode — body.editing shows a dashed outline on every editable string,
+   so the user can see exactly what's clickable to rename. */
+body.editing .ed {
+  outline: 1px dashed var(--brand);
+  outline-offset: 2px;
+  background: rgba(20, 184, 166, 0.06);
+  cursor: text;
+}
+body.editing .ed:focus {
+  outline: 1px solid var(--brand);
+  background: var(--brand-soft);
+}
+.edit-toggle { /* same shape as show-codes */ }
+body.editing .edit-toggle { color: var(--brand); }
+
 /* Codes are technical addresses — hidden by default; toggle to reveal. */
 .code { display: none; }
 body.show-codes .code {

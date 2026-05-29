@@ -182,6 +182,78 @@ def db_catcode_label(code: str) -> str | None:
         return row[0] if row else None
 
 
+# ── User-editable view chrome ────────────────────────────────────────────
+# Every visible piece of view chrome (tab text, headings, lead text, column
+# labels) is editable inline. Overrides persist in abra itself as IS-bindings
+# under `name = view:<key>`, NOT in browser localStorage. abra is the store.
+#
+# Defaults below are the *first-time* strings; the user replaces any of them
+# by entering edit mode and typing. When data-models lands a richer
+# user_config story, these IS-bindings migrate cleanly.
+
+VIEW_DEFAULTS: dict[str, str] = {
+    "tab.categories":          "categories",
+    "tab.bindings":            "what you know",
+    "tab.showcodes":           "show codes",
+    "tab.edit":                "edit",
+    "cat.h1":                  "your categories",
+    "cat.lead":                "The map of where things go. Click any row to rename, add a child, or delete its branch.",
+    "cat.new":                 "+ new top-level",
+    "bind.h1":                 "what you know",
+    "bind.lead":               "Type to find a name. Click a row to open it.",
+    "bind.search.placeholder": "find a name…",
+    "bind.col.rel":            "kind",
+    "bind.col.qual":           "what",
+    "bind.col.tgt":            "where",
+    "bind.col.date":           "when",
+    "bind.col.from":           "from",
+}
+
+
+def db_get_view_texts() -> dict[str, str]:
+    """Return user overrides for editable view chrome strings."""
+    with conn() as c, c.cursor() as cur:
+        cur.execute(
+            "SELECT name, target_ref FROM bindings "
+            "WHERE scope = %s AND relationship = 'IS' AND name LIKE 'view:%%'",
+            (SCOPE,),
+        )
+        out: dict[str, str] = {}
+        for name, target_ref in cur.fetchall():
+            out[name[len("view:"):]] = target_ref
+        return out
+
+
+def db_set_view_text(key: str, value: str) -> None:
+    """Upsert one view-text override as an IS-binding. Empty value clears it."""
+    name = "view:" + key
+    with conn() as c, c.cursor() as cur:
+        cur.execute(
+            "DELETE FROM bindings WHERE scope = %s AND name = %s AND relationship = 'IS'",
+            (SCOPE, name),
+        )
+        if value:
+            cur.execute(
+                "INSERT INTO bindings "
+                "(scope, name, relationship, target_type, target_ref, qualifier) "
+                "VALUES (%s, %s, 'IS', 'text', %s, 'view chrome override')",
+                (SCOPE, name, value),
+            )
+
+
+def tx(key: str, overrides: dict[str, str]) -> str:
+    """View-text accessor: returns the user override or the default."""
+    return overrides.get(key, VIEW_DEFAULTS.get(key, key))
+
+
+def apply_view_texts(html: str, overrides: dict[str, str]) -> str:
+    """Replace every `__T_<key>__` placeholder in the page with the
+    override-or-default, escaped."""
+    def replace(m):
+        return esc(tx(m.group(1), overrides))
+    return re.sub(r"__T_([a-z][a-z0-9._]*)__", replace, html)
+
+
 def db_name_detail(name: str) -> list[dict]:
     """All bindings for one name in the active scope, joined to content
     when the binding points at a content row."""
@@ -537,7 +609,10 @@ class Handler(BaseHTTPRequestHandler):
     def _route(self, method: str, path: str):
         # static
         if method == "GET" and path == "/":
-            return lambda: (HERE / "index.html").read_text().replace("__BASE__", BASE)
+            return lambda: apply_view_texts(
+                (HERE / "index.html").read_text().replace("__BASE__", BASE),
+                db_get_view_texts(),
+            )
         if method == "GET" and path in ("/bindings", "/bindings/"):
             from urllib.parse import parse_qs as _pq
             qs = urlsplit(self.path).query
@@ -554,16 +629,19 @@ class Handler(BaseHTTPRequestHandler):
                     f"filtered: {label}",
                     clear_qs="?q=" + (q or "") if q else "",
                 )
-            return lambda: (
+            return lambda: apply_view_texts(
                 (HERE / "bindings.html").read_text()
                 .replace("__BASE__", BASE)
                 .replace("__Q__", esc(q))
                 .replace("__CATCODE__", esc(catcode))
                 .replace("__HOT__", "1" if hot else "")
-                .replace("__CHIP__", chip)
+                .replace("__CHIP__", chip),
+                db_get_view_texts(),
             )
         if method == "GET" and path == "/style.css":
             return lambda: self._static("style.css", "text/css")
+        if method == "GET" and path == "/edit.js":
+            return lambda: self._static("edit.js", "application/javascript")
 
         # bindings browse
         if method == "GET" and path == "/bindings/list":
@@ -603,6 +681,12 @@ class Handler(BaseHTTPRequestHandler):
         if method == "POST" and path == "/catcodes/":
             return self._post_create
 
+        # view-text override: writes user's edit to abra as IS-binding
+        m = re.fullmatch(r"/view-text/([a-z][a-z0-9._]*)/?", path)
+        if m and method == "POST":
+            key = m.group(1)
+            return lambda: self._post_view_text(key)
+
         return None
 
     # helpers
@@ -625,6 +709,8 @@ class Handler(BaseHTTPRequestHandler):
         # (/abra-view/style.css) still gets the right content type.
         if self.path.endswith("/style.css") and status == 200:
             ctype = "text/css; charset=utf-8"
+        if self.path.endswith("/edit.js") and status == 200:
+            ctype = "application/javascript; charset=utf-8"
         self.send_response(status)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
@@ -691,6 +777,15 @@ class Handler(BaseHTTPRequestHandler):
             return ""
         db_delete(code)
         return ""
+
+    def _post_view_text(self, key: str) -> str:
+        form = self._read_form()
+        value = (form.get("value") or "").strip()
+        if key not in VIEW_DEFAULTS:
+            raise FormError(f"unknown view-text key: {key}")
+        # Empty value clears the override and reverts to default.
+        db_set_view_text(key, value)
+        return esc(value or VIEW_DEFAULTS[key])
 
     def _post_create(self) -> str:
         form = self._read_form()

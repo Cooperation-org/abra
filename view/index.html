@@ -9,17 +9,19 @@
 </head>
 <body>
   <nav class="topnav">
-    <a href="__BASE__/" class="active">categories</a>
-    <a href="__BASE__/bindings/">people &amp; notes</a>
+    <a href="__BASE__/" class="active"><span class="ed" data-k="tab.categories">__T_tab.categories__</span></a>
+    <a href="__BASE__/bindings/"><span class="ed" data-k="tab.bindings">__T_tab.bindings__</span></a>
     <span class="spacer"></span>
     <button type="button" class="toggle"
-            onclick="document.body.classList.toggle('show-codes')">show codes</button>
+            onclick="document.body.classList.toggle('show-codes')"><span class="ed" data-k="tab.showcodes">__T_tab.showcodes__</span></button>
+    <button type="button" class="toggle edit-toggle"
+            onclick="document.body.classList.toggle('editing')"><span class="ed" data-k="tab.edit">__T_tab.edit__</span></button>
   </nav>
 
   <div class="page">
     <header>
-      <h1>your categories</h1>
-      <p class="lead">The map of where things go. Click any row to rename, add a child, or delete its branch.</p>
+      <h1><span class="ed" data-k="cat.h1">__T_cat.h1__</span></h1>
+      <p class="lead"><span class="ed" data-k="cat.lead">__T_cat.lead__</span></p>
     </header>
 
     <main>
@@ -29,7 +31,7 @@
         <button type="button"
                 hx-get="__BASE__/catcodes/new"
                 hx-target="#new-slot"
-                hx-swap="innerHTML">+ new top-level</button>
+                hx-swap="innerHTML"><span class="ed" data-k="cat.new">__T_cat.new__</span></button>
       </div>
       <div id="new-slot"></div>
 
@@ -48,5 +50,6 @@
       </p>
     </footer>
   </div>
+  <script src="__BASE__/edit.js"></script>
 </body>
 </html>
