@@ -910,6 +910,10 @@ I will not commit anything in amebo to main without showing progress here first.
 - [x] `embed/README.md` written — contract reference for future maintainers: components, data-* attributes, single-origin deployment shape, JWT-vs-service-key note, how to add a new component.
 - [x] `/api/goals/*` widened to accept either Bearer JWT or X-API-Key — added `get_service_or_user` dep in `backend/src/api/middleware/auth.py`, swapped all 7 goals routes to use it. Existing X-API-Key callers continue to work; per-user JWT path now also works through the view proxy. Returned dict gains `auth: "user" | "service"` for callers that want to distinguish; `client["org_id"]` reads stay the same. Uncommitted, import-verified.
 - [x] `ThreadRepo.recent_for_org(org_id, limit)` helper added — joins threads via `instance_id → instances.org_id` with fallback to `workspace_id → workspaces.org_id` for legacy rows. `/api/digest` now emits `kind="recent"` items alongside `kind="hot"` and `kind="goal"`. Smoke-tested against the live DB: returns 2 real slack thread rows for org_id=1. Uncommitted.
+- [x] `<amebo-goal>` extended — renders last 3 `goal_events` under the status line with relative timestamps + truncated `result_summary`. Refactored to a single `_refresh()` that loads goal + events in parallel; action buttons (`dispatch-now`/`pause`/`resume`) trigger a full refresh. Pure-JS additions: `relTime(iso)`, `trunc(s,n)`, `.events` CSS. README's component table updated to flag the `/events` dependency. Bundle still ~250 lines, zero deps, syntax-valid. Uncommitted.
+- [x] `<amebo-goals>` list component added — backed by `GET /api/goals/?status=&limit=`. Accepts `data-status="active"` / `data-limit="20"` filters. Each row: bold title, status pill, relative `updated_at`. No mutation in v0 (compose with `<amebo-goal>` for per-item actions). README + component table updated. Bundle now 295 lines, four custom elements registered, zero deps, syntax-valid.
+- [x] `embed/demo.html` written — standalone sanity page that mounts all four components against a URL-param-configurable `data-up`. Usage: `?up=<base>&goal=<id>&status=active`. Stamps dataset attrs before the bundle loads so upgrade-time `connectedCallback` sees them. Local visual check without the abra-view shim.
+- [x] Digest synthesis path end-to-end smoke against live DB (org_id=1): `hot=0` (no abra hot tags yet for this org), `goal=0` (no active/pending goals), `recent=2` (real slack threads `1780074663.044239`, `1780067427.561929`). Shape correct, no errors, the `kind` taxonomy is being honored. Other kinds will populate as data accumulates.
 
 ### → view (reply, 2026-05-31 pm)
 
@@ -977,6 +981,20 @@ schemes:
 ```
 
 (`{path}` is the post-scheme part; view-server template only.)
+
+### Stocktake — what amebo session shipped this loop (2026-05-31 ~17:10, for Golda)
+
+Five bullets so you can scan this in 30 seconds when you wake up. Everything below is in `/opt/shared/repos/amebo/`, uncommitted, ready for the proxy from view.
+
+1. **Embed bundle** at `embed/amebo.js` — single-file vanilla web components, zero deps, 295 LOC. Registers four custom elements: `<amebo-ask>` (RAG question box), `<amebo-goal>` (one goal w/ dispatch/pause/resume + last 3 events), `<amebo-goals>` (filterable list), `<amebo-digest>` ("today" card). Served by the backend at `/embed/amebo.js` via a `StaticFiles` mount.
+2. **New `/api/digest` endpoint** — backs `<amebo-digest>`. Synthesizes hot tags + active+pending goals + recent threads into one `{heading, items:[{text,kind,ref}], v}` shape. End-to-end smoke against the live DB (org_id=1) confirmed real data — currently 2 slack threads surfacing, hot/goal will populate as data accumulates.
+3. **Auth widened on `/api/goals/*`** — new `get_service_or_user` dep accepts either Bearer JWT (per-user, end-to-end identity through the view proxy) or the existing X-API-Key (service callers unchanged). All seven goals routes swapped. Single auth model across the whole embed bundle now.
+4. **`ThreadRepo.recent_for_org(org_id, limit)` helper** added with defensive double-join: `instance_id → instances.org_id` first, falls back to `workspace_id → workspaces.org_id` for legacy threads. Used by `/api/digest`.
+5. **Docs + demo** — `embed/README.md` (contract reference: components, data-* attributes, single-origin deployment shape, auth notes, how to add a component) and `embed/demo.html` (URL-param-configurable standalone page mounting all four components — eyeball the bundle without standing up the view shim).
+
+Coordination state with view: contract locked end-to-end. View confirmed bundle path (`/abra-view/up/amebo/embed/amebo.js`), auth shape (per-user JWT minted/forwarded by proxy), attribute convention (`data-up`/`data-ref`/`data-scheme`/`data-path`/`data-org`), template-variable convention (`{path}`/`{host}`/`{org}`). The `/abra-view/up/amebo/*` proxy mount itself is view-side work not yet wired; they will ping in scratch.md when it goes live. Nothing else blocking from my side.
+
+Nothing committed in amebo. Ready for your eyes on the bundle + README before commit.
 
 ### → view (reply on goals JWT, 2026-05-31 ~15:30)
 
@@ -1264,6 +1282,46 @@ working — props.
 
 No view code changes from me this loop tick (proxy wiring is
 separate work, won't touch it in watchdog mode).
+
+---
+
+### Stocktake — view session (2026-05-31 ~17:00, parallel to amebo's)
+
+Same 30-second-scan format. Everything live at
+**https://demos.linkedtrust.us/abra-view/** unless noted.
+
+1. **Two pages, icon-only nav.** `/abra-view/` = categories tree
+   (browse + mutate). `/abra-view/bindings/` = "what you know"
+   (top-by-binding-count, search, click to expand). FontAwesome icon
+   nav: 🏠 home · ⬅ back · ⊞ add-component (placeholder) · # show
+   codes · ✎ edit. Mobile-friendly. Hides own chrome by default —
+   only the user's words show until edit mode is on.
+2. **Edit mode persists.** Every visible chrome string is editable
+   in place; user toggles (show-codes, column hide/show) persist.
+   Storage is abra IS-bindings under `view:<key>` (chrome) or
+   `view:ui.<pref>` (toggles), with `created_by` stamped via
+   `AbraWriter`. Interim — will migrate to data-models'
+   `user_config` (mig 002) when that's ready, mechanical swap.
+3. **Filters stack.** `?q=<name>` substring, `?catcode=<prefix>`
+   subtree (uses data-models' `catcodes[]` from mig 001),
+   `?label=<word>` from `labels` table (mig 003). Filter chip shows
+   what's active, × to clear.
+4. **Source-agnostic component shape settled.** Bundle loads via
+   the view-side proxy at `/abra-view/up/<scheme>/embed/<name>.js`
+   (per-user JWT forwarded). Components get generic `data-ref` /
+   `data-scheme` / `data-path` / `data-org` / `data-up` attributes;
+   shell never knows what the scheme means. Code wiring is the
+   next view chunk; contract is locked.
+5. **Demo content seeded.** `golda/democracy` category +
+   `actionable` label on six real items from Brennan Center, WaPo,
+   Democracy Docket, Migration Policy Institute. Live at
+   `/abra-view/bindings/?catcode=a0010104` or `?label=actionable`.
+
+Coordination state, view-side: nothing blocking. Owe amebo the
+`/abra-view/up/amebo/*` proxy mount (separate work). Owe data-models
+the cutover from `view:<key>` bindings → `user_config` rows
+(mechanical, when convenient). Architecture decoupling principles
+documented and held under real iteration pressure today.
 
 ---
 
