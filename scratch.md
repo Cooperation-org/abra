@@ -150,6 +150,109 @@ Open for data-models + amebo:
 2. **Amebo call shape from view** — public API endpoint, auth model?
 3. **Refresh** — pull on render is fine for v0. SSE later if needed.
 
+---
+
+### → data-models: concrete asks for the components handoff
+
+Golda said you're expecting this. Below is what I (the view) will need
+from the data layer to make components work. Designed against the
+existing `view:` namespace so it's incremental, not a new world.
+
+**Storage shape — pick one, with rationale**
+
+a) **Pure-binding namespace** (recommended for v0):
+   - Instance: a name `view:component.<instance-id>` in the user's scope
+   - Each binding under that name carries one config key:
+     - `IS / text` → the component type (`type=todos`)
+     - `HAS / text` qualifier `config:<key>` → config values
+     - `HAS / uri` → data-source pointers (`tasks:taiga/board/123`)
+   - Cleanly reuses existing primitives + provenance; no new schema.
+   - Reads: `bindings_for(scope, "view:component.<id>")`.
+
+b) **Dedicated table** if (a) feels overloaded:
+   ```sql
+   CREATE TABLE view_components (
+     scope        VARCHAR(255) NOT NULL,
+     instance_id  TEXT         NOT NULL,
+     component    TEXT         NOT NULL,  -- type, e.g. "todos"
+     config       JSONB        NOT NULL DEFAULT '{}'::jsonb,
+     position     INTEGER,                -- order on homepage
+     created_by   TEXT         NOT NULL,
+     created_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+     PRIMARY KEY (scope, instance_id)
+   );
+   ```
+   Faster reads, JSONB config, explicit position for drag-order. Heavier.
+
+I'd start with (a) so we're not adding schema before we know the shape.
+If we hit query pain we promote to (b) with a one-shot migration.
+
+**Read endpoints view will call**
+
+- `list_components(scope) → [{instance_id, type, config, position}]`
+  for the homepage shell to know what to render.
+- `get_component(scope, instance_id) → {…}` for one component's config
+  + any state it stamped.
+
+**Write endpoints view will call**
+
+- `install_component(scope, type) → instance_id` — chooser → instance.
+- `set_component_config(scope, instance_id, key, value)` — user edits.
+- `move_component(scope, instance_id, position)` — drag reorder (when
+  drag lands).
+- `uninstall_component(scope, instance_id)` — explicit remove.
+
+All can be served by the same dev-shim pattern I'm using for
+`view-text/<key>` today; you'll replace with the real backend.
+
+**Component data-source plumbing**
+
+Each component declares its source — usually a binding pointer like
+`tasks:taiga/board/123` or `feed:rss/<url>`. The component fetches via
+abra's pointer-scheme registry (blocker #9 — currently stub). Worth
+deciding the registry shape soon so I can wire fetches through one
+seam, not per-component glue.
+
+**Amebo path (for the components that need intelligence)**
+
+Two options:
+- Component code calls amebo directly from the view server.
+- Component declares "needs intelligence" and the view server proxies
+  through one shared amebo client.
+
+Recommend the second — one client, one auth identity, one place to
+audit. Needs the amebo session to expose a stable public API + an
+identity model. Flagged the same way in the amebo plan file.
+
+**Authoring components**
+
+Each component lives in `view/components/<name>/` per blocker #6
+filesystem-discovery workaround. Minimum surface per component:
+
+```
+view/components/todos/
+  component.py    # render(instance, config, abra, amebo) → html
+  template.html   # optional jinja-ish template
+  meta.yaml       # name, description, needs[]
+```
+
+You don't need to know component internals; you just need to give
+the view the storage + read/write endpoints above.
+
+**What I'd like back, in priority order**
+
+1. Decision on shape (a) vs (b). I'll write the rest of the contract
+   to fit.
+2. If (a): confirm the binding-name namespace `view:component.<id>` is
+   fine to claim (it's already used for chrome overrides; same scheme
+   extends naturally).
+3. The pointer-scheme registry — even a v0 dispatch dict committed
+   somewhere shared. Components can't do useful work until they can
+   resolve their sources.
+4. Amebo client/auth direction — coordinate with amebo session.
+
+I'll wait for your decisions before any code under `view/components/`.
+
 UI already split (live now):
 
 - `fa-square-plus` in topnav (homepage only) — add a component;
