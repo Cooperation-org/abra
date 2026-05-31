@@ -5,16 +5,22 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>abra · catcodes</title>
   <link rel="stylesheet" href="__BASE__/style.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
   <script src="https://unpkg.com/htmx.org@1.9.12" integrity="sha384-ujb1lZYygJmzgSwoxRggbCHcjc0rB2XoQrxeTUQyRjrOnlCoYta87iKBWq3EsdM2" crossorigin="anonymous"></script>
 </head>
 <body class="__BODY_CLASS__">
   <nav class="topnav">
-    <a href="__BASE__/" class="active"><span class="ed" data-k="tab.categories">__T_tab.categories__</span></a>
-    <a href="__BASE__/bindings/"><span class="ed" data-k="tab.bindings">__T_tab.bindings__</span></a>
+    <a href="__BASE__/" class="nav active" aria-label="home"><i class="fa-solid fa-house"></i></a>
+    <a href="#" class="nav" onclick="history.back();return false" aria-label="back"><i class="fa-solid fa-arrow-left"></i></a>
+    <button type="button" class="nav"
+            hx-get="__BASE__/catcodes/new"
+            hx-target="#new-slot"
+            hx-swap="innerHTML"
+            aria-label="add"><i class="fa-solid fa-plus"></i></button>
     <span class="spacer"></span>
-    <button type="button" class="toggle" data-ui-pref="ui.show-codes"><span class="ed" data-k="tab.showcodes">__T_tab.showcodes__</span></button>
-    <button type="button" class="toggle edit-toggle"
-            onclick="document.body.classList.toggle('editing')"><span class="ed" data-k="tab.edit">__T_tab.edit__</span></button>
+    <button type="button" class="nav" data-ui-pref="ui.show-codes" aria-label="show codes"><i class="fa-solid fa-hashtag"></i></button>
+    <button type="button" class="nav edit-toggle"
+            onclick="document.body.classList.toggle('editing')" aria-label="edit"><i class="fa-solid fa-pen"></i></button>
   </nav>
 
   <div class="page">
