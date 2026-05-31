@@ -199,15 +199,24 @@ body.editing .node-row:hover {
   color: var(--ink);
   flex: 1;
 }
-/* Chrome (edit/+child/delete on each row, column-hide bar, show-codes
-   toggle) is for the app — not for the user. Hidden by default; reveal
-   when the user enters edit mode. */
+/* Per-row actions (edit/+child/delete) are chrome — hidden by default;
+   revealed in edit mode. The list-level add (`+` at the top of the
+   tree) is content-level and stays visible. */
 .actions { display: none; }
 body.editing .actions { display: flex; gap: 4px; }
 body.editing .col-toggles { display: flex; }
 body:not(.editing) .col-toggles { display: none; }
 body:not(.editing) .topnav .toggle:not(.edit-toggle) { display: none; }
-body:not(.editing) .top-actions { display: none; }
+.top-actions { margin-bottom: 0.25rem; }
+.list-add {
+  background: transparent;
+  color: var(--muted);
+  border: 0;
+  cursor: pointer;
+  padding: 4px 8px;
+  font-size: 0.9rem;
+}
+.list-add:hover { color: var(--brand); }
 
 /* Inline forms — edit, add-top, add-child */
 .edit-form, .add-form {

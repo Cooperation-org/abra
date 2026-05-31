@@ -111,6 +111,53 @@ client-side rendering.
 Golda asked me to write down what the view needs. Below. All of it should
 land as **config, never hardcoded**.
 
+### Components — thinking it through (Golda, 2026-05-31, voice)
+
+> Components are like todos — require more than just accurate storage,
+> they need intelligence. Probably uses amebo as a backend. Optional.
+> Different icon than the plain plus: *plus on the top tab* = "add a
+> component" (homepage only). *Plus in the list* = "add an item".
+
+What a component looks like to keep the architecture clean:
+
+- A **component** is an optional, user-installable view module on the
+  homepage. Opt-in ("add a component → todos").
+- Each component is self-contained code under
+  `view/components/<name>/` (filesystem-discovery workaround for
+  blocker #6 stands).
+- Each component declares: data source, intelligence dependency
+  (amebo? none?), config schema, render shape.
+- Per-user instances + config stored as bindings in abra
+  (`view:component.<id>.<key>` namespace). Migrates to user_config
+  cleanly when data-models lands it.
+- Components needing intelligence (todos, suggestions, this-week)
+  call amebo's public API. Components without (RSS, calendar, static
+  list) skip amebo. **Amebo is optional per component.**
+- Component registry: list of installable types — name, description,
+  what it needs. The "add a component" button opens a chooser.
+
+Already in place that components inherit cleanly:
+
+- `view:` namespace for per-user UI state.
+- Edit mode for renaming any visible text (including component labels).
+- `labels(scope, name, label)` for marking things (todos read
+  `label='goal'`, write back via scoring server `/labels`).
+
+Open for data-models + amebo:
+
+1. **Component instance identity** — binding-name namespace, or a
+   `components(scope, instance_id, type, config_json)` table?
+2. **Amebo call shape from view** — public API endpoint, auth model?
+3. **Refresh** — pull on render is fine for v0. SSE later if needed.
+
+UI already split (live now):
+
+- `fa-square-plus` in topnav (homepage only) — add a component;
+  placeholder alert until the architecture settles.
+- `fa-plus` in the list — add an item (top-level category).
+  Always visible, no edit-mode gate.
+- `fa-magnifying-glass` on the people view — find/search.
+
 ### Architectural input from Golda (2026-05-29, voice — needs care)
 
 > Originally everything in abra was a category code. Now things are so

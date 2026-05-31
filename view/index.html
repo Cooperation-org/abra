@@ -12,11 +12,9 @@
   <nav class="topnav">
     <a href="__BASE__/" class="nav active" aria-label="home"><i class="fa-solid fa-house"></i></a>
     <a href="#" class="nav" onclick="history.back();return false" aria-label="back"><i class="fa-solid fa-arrow-left"></i></a>
-    <button type="button" class="nav"
-            hx-get="__BASE__/catcodes/new"
-            hx-target="#new-slot"
-            hx-swap="innerHTML"
-            aria-label="add"><i class="fa-solid fa-plus"></i></button>
+    <button type="button" class="nav add-component"
+            onclick="alert('Components — coming. See scratch.md / data-models discussion.')"
+            aria-label="add a component"><i class="fa-solid fa-square-plus"></i></button>
     <span class="spacer"></span>
     <button type="button" class="nav" data-ui-pref="ui.show-codes" aria-label="show codes"><i class="fa-solid fa-hashtag"></i></button>
     <button type="button" class="nav edit-toggle"
@@ -33,10 +31,11 @@
       <div id="flash" aria-live="polite"></div>
 
       <div class="top-actions">
-        <button type="button"
+        <button type="button" class="list-add"
                 hx-get="__BASE__/catcodes/new"
                 hx-target="#new-slot"
-                hx-swap="innerHTML"><span class="ed" data-k="cat.new">__T_cat.new__</span></button>
+                hx-swap="innerHTML"
+                aria-label="add top-level"><i class="fa-solid fa-plus"></i></button>
       </div>
       <div id="new-slot"></div>
 
