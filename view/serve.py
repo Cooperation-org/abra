@@ -230,22 +230,26 @@ UI_PREFS: dict[str, str] = {
     "ui.hide-col.from": "hide-from",
 }
 
+# Defaults are empty. Nothing on the screen is from me; if Golda hasn't
+# named a piece of chrome, it shows as a minimal click affordance only
+# (a colour dot for tabs, a thin marker for the edit toggle). She names
+# them in edit mode and they appear; until then, only her data shows.
 VIEW_DEFAULTS: dict[str, str] = {
-    "tab.categories":          "categories",
-    "tab.bindings":            "what you know",
-    "tab.showcodes":           "show codes",
-    "tab.edit":                "edit",
-    "cat.h1":                  "your categories",
-    "cat.lead":                "The map of where things go. Click any row to rename, add a child, or delete its branch.",
-    "cat.new":                 "+ new top-level",
-    "bind.h1":                 "what you know",
-    "bind.lead":               "Type to find a name. Click a row to open it.",
-    "bind.search.placeholder": "find a name…",
-    "bind.col.rel":            "kind",
-    "bind.col.qual":           "what",
-    "bind.col.tgt":            "where",
-    "bind.col.date":           "when",
-    "bind.col.from":           "from",
+    "tab.categories":          "",
+    "tab.bindings":            "",
+    "tab.showcodes":           "",
+    "tab.edit":                "",
+    "cat.h1":                  "",
+    "cat.lead":                "",
+    "cat.new":                 "",
+    "bind.h1":                 "",
+    "bind.lead":               "",
+    "bind.search.placeholder": "",
+    "bind.col.rel":            "",
+    "bind.col.qual":           "",
+    "bind.col.tgt":            "",
+    "bind.col.date":           "",
+    "bind.col.from":           "",
 }
 
 
@@ -522,16 +526,9 @@ def render_target(target_type: str, target_ref: str) -> str:
 
 def binding_list_html(rows: list[tuple], q: str | None,
                       catcode: str | None = None, label: str | None = None) -> str:
+    # No author text — empty list is empty. Nothing to read but what's there.
     if not rows:
-        if label:
-            return f'<p class="muted">Nothing is labelled <code>{esc(label)}</code> right now.</p>'
-        if catcode and q:
-            return f'<p class="muted">No names match <code>{esc(q)}</code> in this category.</p>'
-        if catcode:
-            return '<p class="muted">No names in this category yet.</p>'
-        if q:
-            return f'<p class="muted">No names match <code>{esc(q)}</code>.</p>'
-        return '<p class="muted">No names yet in this scope.</p>'
+        return ""
     items = []
     for name, n, most_recent, teaser in rows:
         href = u(f"/names/{esc(name)}/")
@@ -554,8 +551,7 @@ def binding_list_html(rows: list[tuple], q: str | None,
             f'</details>'
             f'</li>'
         )
-    header = f'<p class="muted">{len(rows)} name{"s" if len(rows) != 1 else ""}{" matching" if q else ""}.</p>'
-    return header + f'<ul class="binding-list">{"".join(items)}</ul>'
+    return f'<ul class="binding-list">{"".join(items)}</ul>'
 
 
 def name_detail_html(name: str, rows: list[dict]) -> str:
@@ -564,7 +560,7 @@ def name_detail_html(name: str, rows: list[dict]) -> str:
     expanding a row never jumps the page. Columns (rel/qual/tgt/date/from)
     can be hidden/shown via the toggles in the page chrome."""
     if not rows:
-        return f'<p class="muted">No bindings for <code>{esc(name)}</code> in this scope.</p>'
+        return ""
 
     items: list[str] = []
     content_count = 0
@@ -608,12 +604,7 @@ def name_detail_html(name: str, rows: list[dict]) -> str:
         else:
             items.append(f'<div class="bind-row">{cols}</div>')
 
-    header = (
-        f'<p class="muted">{len(rows)} binding{"s" if len(rows) != 1 else ""}'
-        + (f" · {content_count} with content" if content_count else "")
-        + "</p>"
-    )
-    return header + f'<div class="bindings">{"".join(items)}</div>'
+    return f'<div class="bindings">{"".join(items)}</div>'
 
 
 # ── request handler ──────────────────────────────────────────────────────
@@ -674,13 +665,11 @@ class Handler(BaseHTTPRequestHandler):
             label = (params.get("label", [""])[0] or "").strip()
             chip = ""
             if label:
-                chip = self._chip_html(f"label: {label}", clear_qs="")
+                chip = self._chip_html(label, clear_qs="")
             elif catcode:
                 lbl = db_catcode_label(catcode) or catcode
-                chip = self._chip_html(
-                    f"category: {lbl}",
-                    clear_qs="?q=" + (q or "") if q else "",
-                )
+                chip = self._chip_html(lbl,
+                    clear_qs="?q=" + (q or "") if q else "")
             return lambda: apply_view_texts(
                 (HERE / "bindings.html").read_text()
                 .replace("__BASE__", BASE)
@@ -785,10 +774,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def _chip_html(self, text: str, clear_qs: str = "") -> str:
         href = u("/bindings/") + (clear_qs or "")
+        # Just the value + ×. No "filter:" / "category:" prefix — those
+        # are author words; she only sees the data.
         return (
             f'<div class="filter-chip">'
             f'<span>{esc(text)}</span>'
-            f'<a href="{esc(href)}" title="clear filter" class="clear">×</a>'
+            f'<a href="{esc(href)}" class="clear">×</a>'
             f'</div>'
         )
 

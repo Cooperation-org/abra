@@ -25,7 +25,9 @@ body {
   padding: 0;
 }
 
-/* Tab strip — narrow, at the literal top of the page. */
+/* Tab strip — narrow, at the literal top of the page. Each tab/toggle
+   has a minimal clickable area even when the user hasn't named it
+   (empty default). Active tab is the brand colour. */
 .topnav {
   display: flex;
   align-items: stretch;
@@ -34,30 +36,31 @@ body {
   padding: 0;
   font-size: 0.85rem;
 }
-.topnav a {
-  padding: 4px 12px;
+.topnav a, .topnav .toggle {
+  padding: 4px 10px;
   color: var(--muted);
   text-decoration: none;
   background: var(--surface);
-}
-.topnav a:hover { color: var(--brand); }
-.topnav a.active {
-  color: var(--brand);
-  background: var(--bg);
-  font-weight: 600;
-}
-.topnav .spacer { flex: 1; background: var(--bg); }
-.topnav .toggle {
-  background: var(--bg);
-  color: var(--muted);
-  padding: 4px 12px;
+  min-width: 14px;
+  display: inline-flex;
+  align-items: center;
   border: 0;
   cursor: pointer;
   font: inherit;
-  font-size: 0.8rem;
+  font-size: 0.85rem;
 }
-.topnav .toggle:hover { color: var(--brand); }
-body.show-codes .topnav .toggle { color: var(--brand); }
+.topnav a:hover, .topnav .toggle:hover { color: var(--brand); }
+.topnav a.active {
+  color: var(--brand);
+  background: var(--bg);
+}
+.topnav .spacer { flex: 1; background: var(--bg); }
+body.show-codes .topnav .toggle[data-ui-pref="ui.show-codes"] { color: var(--brand); }
+body.editing .edit-toggle { color: var(--brand); }
+/* Empty editable spans collapse to nothing visible, but the parent link
+   keeps min-width so it's still clickable. In edit mode, show a dotted
+   placeholder so the user can find empty slots to name. */
+body.editing .ed:empty::before { content: "·"; color: var(--muted); }
 
 /* Content sits close to the left edge. No big margin. Tight by default;
    the user can rename the heading text away if they want even less chrome. */
