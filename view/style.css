@@ -59,14 +59,20 @@ body {
 .topnav .toggle:hover { color: var(--brand); }
 body.show-codes .topnav .toggle { color: var(--brand); }
 
-/* Content sits close to the left edge. No big margin. */
+/* Content sits close to the left edge. No big margin. Tight by default;
+   the user can rename the heading text away if they want even less chrome. */
 .page {
-  padding: 0.5rem 0.75rem 3rem;
+  padding: 0.5rem 0.75rem 2rem;
   max-width: none;
 }
 @media (min-width: 900px) {
   .page { padding-left: 1rem; padding-right: 1rem; }
 }
+header { margin-bottom: 0.5rem; }
+header h1 { font-size: 1.15rem; margin: 0; }
+.lead { font-size: 0.85rem; margin: 0.15rem 0 0.5rem; }
+body:not(.editing) .lead { display: none; }
+body:not(.editing) header h1 { display: none; }
 
 header h1 {
   font-family: "Special Elite", ui-monospace, "Cascadia Mono", "Source Code Pro", monospace;
@@ -161,24 +167,27 @@ ul.tree, ul.children {
   padding: 0;
 }
 ul.children {
-  margin-left: 1rem;
+  margin-left: 0.75rem;
   border-left: 1px dashed var(--border);
-  padding-left: 1rem;
-  margin-top: 4px;
+  padding-left: 0.5rem;
+  margin-top: 1px;
 }
 li {
-  margin: 4px 0;
+  margin: 1px 0;
 }
 .node-row {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 6px 10px;
-  background: var(--surface);
+  gap: 0.5rem;
+  padding: 2px 6px;
+  background: transparent;
   border: 1px solid transparent;
   border-radius: var(--radius);
 }
-.node-row:hover {
+body.editing .node-row {
+  background: var(--surface);
+}
+body.editing .node-row:hover {
   border-color: var(--border);
 }
 .code {
@@ -191,13 +200,15 @@ li {
   color: var(--ink);
   flex: 1;
 }
-.actions {
-  display: flex;
-  gap: 4px;
-  opacity: 0.55;
-  transition: opacity 80ms;
-}
-.node-row:hover .actions { opacity: 1; }
+/* Chrome (edit/+child/delete on each row, column-hide bar, show-codes
+   toggle) is for the app — not for the user. Hidden by default; reveal
+   when the user enters edit mode. */
+.actions { display: none; }
+body.editing .actions { display: flex; gap: 4px; }
+body.editing .col-toggles { display: flex; }
+body:not(.editing) .col-toggles { display: none; }
+body:not(.editing) .topnav .toggle:not(.edit-toggle) { display: none; }
+body:not(.editing) .top-actions { display: none; }
 
 /* Inline forms — edit, add-top, add-child */
 .edit-form, .add-form {
@@ -316,10 +327,15 @@ ul.binding-list {
   list-style: none;
   display: flex;
   align-items: baseline;
-  gap: 0.75rem;
-  padding: 8px 12px;
+  gap: 0.5rem;
+  padding: 3px 8px;
   cursor: pointer;
 }
+.name-card {
+  background: transparent;
+  margin: 0;
+}
+body.editing .name-card { background: var(--surface); }
 .name-card > summary::-webkit-details-marker { display: none; }
 .name-card > summary::before {
   content: "▸";
