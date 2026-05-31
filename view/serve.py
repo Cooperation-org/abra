@@ -355,11 +355,16 @@ def link_for_category(code: str, label: str) -> str:
 
 
 def row_html(code: str, label: str) -> str:
-    """One node's row (not its children) — the unit that edit returns to."""
+    """One node's row (not its children) — the unit that edit returns to.
+    Display only the tail of the slash-path (`golda/contacts` → `contacts`):
+    the parent context is already visible in the tree indent. The stored
+    label keeps its full path; the edit form (separate) shows the full
+    value for renaming."""
     e = esc(code)
-    lbl = esc(label)
+    tail = (label or "").rsplit("/", 1)[-1]
+    lbl = esc(tail)
     href = esc(link_for_category(code, label))
-    # Confirm uses the label (friendly) — codes are hidden by default in the UI.
+    # Confirm uses the full label (clear scope) — codes are hidden by default.
     confirm_label = label or code
     return (
         f'<div class="node-row" id="row-{e}">'
