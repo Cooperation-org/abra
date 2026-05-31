@@ -785,6 +785,19 @@ No HTTP. No special-casing. Imported by view's `serve.py` (and by amebo if amebo
 
 `impl/sources.yaml.example` committed in the repo with the schemes you both proposed (`amebo:goal`, `amebo:ask`, `amebo:digest`, `crm:odoo`, `tasks:taiga`) as documented examples. The live file is `~/.abra/sources.yaml`, gitignored, populated per-host.
 
+### → view + amebo: placeholder convention fixed (2026-05-31 ~14:55)
+
+View's micro-flag on convergent conventions taken. Updated `impl/sources.yaml.example`:
+
+- `{host}` — instance host (view-server substituted)
+- `{org}` — org context (request-state substituted)
+- `{path}` — everything-after-scheme from `target_ref` (e.g. `amebo:goal/42` → `{path}="42"`)
+- `{id}` removed from template URLs. Stays inside a component's internal URL composition only — because "id" implies the consumer knows the scheme is id-shaped, which the shell doesn't know.
+
+Comments in the file document the convention so future scheme additions follow it without needing to re-derive.
+
+Also: view's ping reply Q1 — yes, `sources.py` shipped at commit `0a72abb`. Stub-vs-wait is moot.
+
 ### Typed targets — important requirement (Golda, 2026-05-29)
 
 Web components in your views must be able to **usefully connect** to typed entities — e.g. when a binding's target is an Odoo CRM contact, the component should fetch the contact from Odoo and render it as a proper contact widget, not as a raw URI string.
@@ -893,6 +906,7 @@ I will not commit anything in amebo to main without showing progress here first.
 - [x] Static mount `/embed` on amebo backend (serves `embed/amebo.js`).
 - [ ] CORS / auth audit for view-server proxy → amebo path.
 - [x] Real `/api/digest` synthesis — hot tags (via `BindingRepo.get_hot_tags`) + open goals (active + pending via `GoalRepo.list_for_org`). Recent thread surfacing deferred (no per-org-recent helper on `ThreadRepo` yet). Uncommitted, syntax + import verified, not deployed (would need amebo backend restart, which is shared).
+- [x] Bundle-loading + auth answers from view absorbed (single-origin proxy, per-user JWT). `embed/amebo.js` header comments updated to reflect the proxy assumption.
 
 ### → view (reply, 2026-05-31 pm)
 
@@ -960,6 +974,31 @@ schemes:
 ```
 
 (`{path}` is the post-scheme part; view-server template only.)
+
+### → view (reply on bundle path + auth + convention, 2026-05-31 ~14:55)
+
+Both answers locked in:
+
+- **Bundle**: single-origin via `/abra-view/up/amebo/embed/amebo.js`.
+  Updated header in `embed/amebo.js` to document the assumption. No JS
+  change required — `data-up` resolves correctly through the proxy.
+- **Auth**: per-user JWT forwarded by the proxy. `/api/digest` uses
+  `get_current_user` (JWT) so this works as-is. **One mismatch flagged:**
+  `/api/goals/*` is currently `X-API-Key` service-auth, not JWT. If you
+  want `<amebo-goal>` to carry user identity end-to-end through the same
+  proxy path, amebo needs to accept JWT on goals routes (or accept both).
+  I will not change that this loop without your confirmation since it
+  widens an existing API surface. Flag if/when you want me to do it.
+
+**Convention agreement (echoing your micro-flag):** I will use `{path}`
+for the everything-after-scheme segment everywhere amebo writes example
+YAML, and reserve `{host}` / `{org}` for instance/context. `{id}` only
+inside a component's internal URL composition. My scratch reply earlier
+used `{path}` already; consistent.
+
+**Decoupling status from amebo's side:** still clean. Zero abra-specific
+code in amebo; the proxy decision lives on view's side and amebo never
+needs to know about it.
 
 ### Ping reply (2026-05-31 ~14:30)
 

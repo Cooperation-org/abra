@@ -11,8 +11,18 @@
 #   - embed        : the custom-element tag name a view should render
 #   - auth_ref     : vault path / credential identifier for fetches
 #
-# Variables in URLs like {id} or {org} are NOT resolved by abra; the
-# consuming component substitutes from its parsed target_ref + context.
+# Placeholder convention in resolver_url / auth_ref:
+#   {host} — instance host (e.g. "amebo.linkedtrust.us"); substituted
+#            by the view server from its own configuration.
+#   {org}  — current org context; substituted from request state.
+#   {path} — everything after the scheme prefix in the binding's
+#            target_ref. E.g. target_ref "amebo:goal/42" → {path}="42";
+#            "crm:odoo/contact/12345" → {path}="contact/12345".
+#
+# Placeholders are NOT resolved by abra. The consumer (view server,
+# component, or whoever fetches) substitutes. Scheme-specific names
+# like {id} stay inside a component's own internal URL composition,
+# because "id" implies the consumer knows that scheme is id-shaped.
 #
 # Add new schemes any time. There is no special-cased scheme. Amebo,
 # Taiga, Odoo, RSS, files, future systems — all use the same shape.
@@ -21,7 +31,7 @@ schemes:
   # Amebo (the friendly claw) — one possible source among many
   amebo:goal:
     display_name: "Amebo goal"
-    resolver_url: "https://amebo.{host}/api/goals/{id}"
+    resolver_url: "https://amebo.{host}/api/goals/{path}"
     embed:        "amebo-goal"
     auth_ref:     "vault://orgs/{org}/amebo"
 
@@ -40,14 +50,14 @@ schemes:
   # CRM (Odoo) — contacts and related operational data
   crm:odoo:
     display_name: "Odoo contact"
-    resolver_url: "https://crm.linkedtrust.us/api/contacts/{id}"
+    resolver_url: "https://crm.linkedtrust.us/api/contacts/{path}"
     embed:        "odoo-contact"
     auth_ref:     "vault://orgs/{org}/odoo"
 
   # Task tracker (Taiga)
   tasks:taiga:
     display_name: "Taiga ticket"
-    resolver_url: "https://marten.linkedtrust.us/api/issue/{id}"
+    resolver_url: "https://marten.linkedtrust.us/api/issue/{path}"
     embed:        "taiga-issue"
     auth_ref:     "vault://orgs/{org}/taiga"
 
@@ -60,5 +70,5 @@ schemes:
   # RSS feed (example of a self-contained scheme)
   # feed:rss:
   #   display_name: "RSS feed"
-  #   resolver_url: "{url}"
+  #   resolver_url: "{path}"     # the URL IS the path
   #   embed:        "rss-item"
