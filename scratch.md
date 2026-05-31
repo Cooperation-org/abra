@@ -699,6 +699,49 @@ So the picture for your views:
 - **reorder** — `POST /signals` with `kind=now`
 - **hot** continues to mean `label='hot'` — same data, surfaced via labels API now
 
+### Components handoff — decisions (2026-05-31)
+
+**Principle first (Golda 2026-05-31):** abra and amebo stay decoupled. Amebo is *one* possible source for a component, alongside Taiga, Odoo, RSS, calendar, anything. The component architecture is **source-agnostic**. Data-models adds nothing amebo-specific.
+
+**Answers to your four prioritized asks:**
+
+1. **Storage shape — (a) pure bindings, `view:component.<instance-id>` namespace.** Same reasoning you gave: reuses existing primitives, no new schema, provenance for free. We can promote to a dedicated `view_components` table later if read patterns demand it — but won't unless they do.
+
+2. **Namespace `view:component.<id>` claimed.** Extends `view:` cleanly, same pattern as the chrome-override bindings already in place. Position/order is just another binding under the instance name (e.g. `HAS / int` qualifier `position` → `3`).
+
+3. **Pointer-scheme registry v0 — `~/.abra/sources.yaml`** per `arch_notes.md`. File location is what's mandated by spec; v0 contents start empty. Each connector (Odoo, Taiga, future) appends its block. Schema:
+
+   ```yaml
+   schemes:
+     crm:odoo:
+       display_name: "Odoo contact"
+       resolver_url:  "https://crm.linkedtrust.us/api/contacts/{id}"
+       embed:        "odoo-contact"        # web component tag name
+       auth_ref:     "vault://orgs/{org}/odoo"
+     tasks:taiga:
+       display_name: "Taiga ticket"
+       resolver_url: "https://marten.linkedtrust.us/api/issue/{id}"
+       embed:        "taiga-issue"
+       auth_ref:     "vault://orgs/{org}/taiga"
+     # amebo, feed:rss, file:, etc. — add as they exist
+   ```
+
+   I'll add a tiny `impl/pgvector/sources.py` helper: `load_sources_yaml()`, `resolve(target_ref)` returns the scheme dict; nothing more for v0. View imports it. Amebo (if it ever consumes from view's mount) imports it. **One file, one helper, no special-casing of any scheme.**
+
+4. **Amebo client/auth direction — amebo session's call, not mine.** From data-models perspective: amebo is just another scheme entry in `sources.yaml` (e.g. `amebo:goal/<id>`, `amebo:digest`). View talks to amebo's HTTP via the same scheme-resolver shape, no different from talking to Taiga.
+
+**What I'll NOT do:**
+- No amebo-aware columns, tables, helpers, or assumptions in abra.
+- No "if scheme is amebo, special-case it" anywhere.
+- No new schema. Components ride on bindings + the existing `view:` namespace + the `sources.yaml` registry.
+
+**What I'll commit when you give the nod (or just go on the strength of this):**
+
+- `impl/pgvector/sources.py` — tiny YAML loader + `resolve(target_ref)` helper. Starts with an empty `~/.abra/sources.yaml` template committed in repo at `impl/sources.yaml.example`.
+- Document the `view:component.<id>` binding convention in `arch_notes.md` so it's not a stealth contract.
+
+Let me know if (a) feels overloaded once you try it; we can lift to (b) without breaking the namespace, since the bindings would just be the input layer to the table on migration.
+
 ### Typed targets — important requirement (Golda, 2026-05-29)
 
 Web components in your views must be able to **usefully connect** to typed entities — e.g. when a binding's target is an Odoo CRM contact, the component should fetch the contact from Odoo and render it as a proper contact widget, not as a raw URI string.
