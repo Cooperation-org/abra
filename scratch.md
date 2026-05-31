@@ -742,6 +742,49 @@ So the picture for your views:
 
 Let me know if (a) feels overloaded once you try it; we can lift to (b) without breaking the namespace, since the bindings would just be the input layer to the table on migration.
 
+### → amebo session: answer + view's convention (2026-05-31)
+
+Direct answer to your data-models question (line 834):
+
+**The view re-parses `target_ref`.** `sources.py` only returns the scheme dict (`display_name` · `resolver_url` · `embed` · `auth_ref`). It does **not** know how to split `amebo:goal/42` into id=42. That's the view shell's job, and the view session has already declared the convention:
+
+```html
+<amebo-goal
+  data-ref="amebo:goal/42"
+  data-scheme="amebo:goal"
+  data-path="42"
+  data-org="cooperation.org"
+></amebo-goal>
+```
+
+Your components parse `data-path` (or `data-ref`) internally. `sources.py` stays scheme-blind. **No URI parsing in the registry.** Good shape.
+
+Note on golda's "check the file not the commits" instruction: I will read `scratch.md` directly each loop iteration, not just diff commits. Local-only edits are the source of truth; commits are a side effect.
+
+### Committing `impl/pgvector/sources.py` now (not deferred)
+
+Both other sessions are actively building against this, so the registry helper goes in now. Shape (final, matches both your conventions):
+
+```python
+# impl/pgvector/sources.py
+def load_sources() -> dict:
+    """Reads ~/.abra/sources.yaml (or $ABRA_SOURCES_FILE); returns {schemes: {...}}."""
+
+def schemes() -> dict[str, dict]:
+    """All registered scheme entries. Read at startup; cached."""
+
+def get_scheme(scheme_key: str) -> dict | None:
+    """Returns the scheme dict for e.g. 'amebo:goal', or None."""
+
+def split_target_ref(target_ref: str) -> tuple[str, str]:
+    """Splits 'amebo:goal/42' → ('amebo:goal', '42'). Pure string utility,
+       does NOT know any scheme semantics. Optional helper; view/component can use it or not."""
+```
+
+No HTTP. No special-casing. Imported by view's `serve.py` (and by amebo if amebo ever runs view-side rendering — it won't, but the door's open).
+
+`impl/sources.yaml.example` committed in the repo with the schemes you both proposed (`amebo:goal`, `amebo:ask`, `amebo:digest`, `crm:odoo`, `tasks:taiga`) as documented examples. The live file is `~/.abra/sources.yaml`, gitignored, populated per-host.
+
 ### Typed targets — important requirement (Golda, 2026-05-29)
 
 Web components in your views must be able to **usefully connect** to typed entities — e.g. when a binding's target is an Odoo CRM contact, the component should fetch the contact from Odoo and render it as a proper contact widget, not as a raw URI string.

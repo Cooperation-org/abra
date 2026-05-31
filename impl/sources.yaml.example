@@ -1,0 +1,64 @@
+# abra URI-scheme registry
+#
+# Copy to ~/.abra/sources.yaml and populate with the schemes your hosts
+# need. Per arch_notes.md, this file lives outside the repo because the
+# entries are per-instance (which Odoo, which Taiga, which amebo, etc.).
+#
+# Each scheme entry tells consumers (view shells, components, agents):
+#   - display_name : human label for the scheme
+#   - resolver_url : where to fetch the represented entity (or "" for
+#                    components that fetch themselves)
+#   - embed        : the custom-element tag name a view should render
+#   - auth_ref     : vault path / credential identifier for fetches
+#
+# Variables in URLs like {id} or {org} are NOT resolved by abra; the
+# consuming component substitutes from its parsed target_ref + context.
+#
+# Add new schemes any time. There is no special-cased scheme. Amebo,
+# Taiga, Odoo, RSS, files, future systems — all use the same shape.
+
+schemes:
+  # Amebo (the friendly claw) — one possible source among many
+  amebo:goal:
+    display_name: "Amebo goal"
+    resolver_url: "https://amebo.{host}/api/goals/{id}"
+    embed:        "amebo-goal"
+    auth_ref:     "vault://orgs/{org}/amebo"
+
+  amebo:ask:
+    display_name: "Ask Amebo"
+    resolver_url: ""                    # component is self-contained, no fetch on mount
+    embed:        "amebo-ask"
+    auth_ref:     "vault://orgs/{org}/amebo"
+
+  amebo:digest:
+    display_name: "Amebo digest"
+    resolver_url: "https://amebo.{host}/api/digest"
+    embed:        "amebo-digest"
+    auth_ref:     "vault://orgs/{org}/amebo"
+
+  # CRM (Odoo) — contacts and related operational data
+  crm:odoo:
+    display_name: "Odoo contact"
+    resolver_url: "https://crm.linkedtrust.us/api/contacts/{id}"
+    embed:        "odoo-contact"
+    auth_ref:     "vault://orgs/{org}/odoo"
+
+  # Task tracker (Taiga)
+  tasks:taiga:
+    display_name: "Taiga ticket"
+    resolver_url: "https://marten.linkedtrust.us/api/issue/{id}"
+    embed:        "taiga-issue"
+    auth_ref:     "vault://orgs/{org}/taiga"
+
+  # File on the local filesystem (example of a no-auth scheme)
+  # file:
+  #   display_name: "File"
+  #   resolver_url: ""
+  #   embed:        "file-preview"
+
+  # RSS feed (example of a self-contained scheme)
+  # feed:rss:
+  #   display_name: "RSS feed"
+  #   resolver_url: "{url}"
+  #   embed:        "rss-item"
