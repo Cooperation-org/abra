@@ -3,8 +3,11 @@
 # Copy to ~/.abra/components.yaml and populate with the web components
 # this abra instance trusts.
 #
+# Full contract spec: ../component-contract.md
+#
 # This file is the *catalog* — name, icon, description, where to load
-# the JS from, what schemes the component handles. Paired with
+# the JS from, what schemes the component handles, and (optionally) how
+# to collect required attribute values at install time. Paired with
 # sources.yaml (the scheme → resolver/embed/auth mapping).
 #
 # Adding a component is deliberate: paste the script URL, fetch the
@@ -21,6 +24,10 @@
 #                      embeds the tag. `schemes: []`, `required: []`.
 #                      Example below: gmail-inbox (illustrative).
 #
+# Picking a value at install time (when `required` is non-empty):
+#   Per attr, declare ONE of `picker_tag` / `pickers` / `prompts`. View
+#   resolves in that priority order. See component-contract.md §3.
+#
 # Trust:
 #   `integrity` is the SRI hash of the script. The view should set it
 #   on the <script> tag so the browser refuses a tampered bundle.
@@ -36,6 +43,12 @@ components:
     provider:    "amebo"
     schemes:     ["amebo:goal"]
     required:    ["data-up", "data-path"]
+    # Pick a goal at install time from a live list endpoint.
+    pickers:
+      data-path:
+        source:       "/api/goals/?status=active"
+        label_field:  "title"
+        value_field:  "id"
     integrity:   "sha384-REPLACE_ME"
     added_by:    "urn:abra:user/golda"
     added_at:    "2026-06-01"
@@ -52,7 +65,37 @@ components:
     added_by:    "urn:abra:user/golda"
     added_at:    "2026-06-01"
 
-  # Illustrative self-contained example (no real host yet).
+  # Illustrative: text-prompt mechanism (cheaper than pickers).
+  # taiga-board:
+  #   name:        "Board"
+  #   description: "One Taiga board's columns and cards."
+  #   script:      "https://taiga-widgets.example.com/board.js"
+  #   provider:    "taiga"
+  #   schemes:     ["taiga:board"]
+  #   required:    ["data-up", "data-board"]
+  #   prompts:
+  #     data-board:
+  #       label:       "Board slug"
+  #       placeholder: "e.g. linkedtrust-roadmap"
+  #       hint:        "URL slug from the Taiga board page"
+  #   integrity:   "sha384-..."
+  #   added_by:    "urn:abra:user/golda"
+  #   added_at:    "2026-06-01"
+
+  # Illustrative: provider-side picker component.
+  # odoo-contact:
+  #   name:        "Contact"
+  #   description: "One CRM contact with recent activity."
+  #   script:      "https://crm.linkedtrust.us/embed/odoo.js"
+  #   provider:    "odoo"
+  #   schemes:     ["crm:odoo"]
+  #   required:    ["data-up", "data-path"]
+  #   picker_tag:  "odoo-contact-picker"
+  #   integrity:   "sha384-..."
+  #   added_by:    "urn:abra:user/golda"
+  #   added_at:    "2026-06-01"
+
+  # Illustrative self-contained example (no host wiring).
   # gmail-inbox:
   #   name:        "Gmail unread"
   #   description: "Unread mail at a glance."

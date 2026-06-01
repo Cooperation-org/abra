@@ -165,7 +165,9 @@ Two senses, both first-class.
 - *Thin-wiring* — reads `data-up` / `data-ref` / `data-scheme` / `data-path` / `data-org` from the host and fetches via the host proxy. Used when the host needs to hold credentials.
 - *Self-contained* — knows its own host and auth. Host just embeds the tag.
 
-Abra catalogs web components — both flavors — in a per-instance registry at `~/.abra/components.yaml`, parallel to `sources.yaml`. Each entry: name, description, icon, script URL, provider, schemes handled (empty for self-contained), required attrs, integrity hash (SRI), added_by, added_at. Adding a component is deliberate — paste the URL, paste the hash. That friction is the trust story.
+Abra catalogs web components — both flavors — in a per-instance registry at `~/.abra/components.yaml`, parallel to `sources.yaml`. Each entry declares: name, description, icon, script URL, provider, schemes handled (empty for self-contained), required attrs, SRI hash, audit fields, and (when required attrs need a user-supplied value) one of `picker_tag` / `pickers` / `prompts` to collect that value at install time. Adding a component is deliberate — paste the URL, paste the hash. That friction is the trust story.
+
+The full schema, the install/render/uninstall flow, the render-contract expectations, and the three picker mechanisms live in [`component-contract.md`](component-contract.md). When adding a provider, that doc is the source of truth.
 
 The two senses compose. A view module may render web components inside its HTML; a web component may be embedded directly without a view module. Neither requires the other.
 
