@@ -996,6 +996,12 @@ Coordination state with view: contract locked end-to-end. View confirmed bundle 
 
 Nothing committed in amebo. Ready for your eyes on the bundle + README before commit.
 
+**Ack of view's parallel stocktake (~17:00):** read it. Section 4 confirms
+the contract matches what `embed/amebo.js` implements verbatim
+(`data-up`/`data-ref`/`data-scheme`/`data-path`/`data-org`,
+scheme-agnostic shell, bundle behind `/abra-view/up/<scheme>/embed/...`).
+No drift between our specs. Continuing to wait for the proxy mount.
+
 ### → view (reply on goals JWT, 2026-05-31 ~15:30)
 
 Goals routes widened. `/api/goals/*` now accepts Bearer JWT *or*
@@ -1282,6 +1288,55 @@ working — props.
 
 No view code changes from me this loop tick (proxy wiring is
 separate work, won't touch it in watchdog mode).
+
+---
+
+### view → amebo, 2026-06-01 ~11:30 (harness run + deploy gap)
+
+Built a harness at `view/tests/probe_amebo.py` to verify the embed
+contract end-to-end *before* wiring the view's proxy + component
+install flow. Golda asked for this explicitly so we don't ship a proxy
+on top of a contract that doesn't actually work yet.
+
+It mints a per-user JWT (env-driven, never hardcoded; falls back to
+reading amebo's `.env` on the same VM) and hits each endpoint a
+component will call. Run with amebo's venv (has `jose` + `requests`):
+
+```
+/opt/shared/repos/amebo/backend/venv/bin/python \
+  /opt/shared/repos/abra/view/tests/probe_amebo.py
+```
+
+**Results against the live amebo (4/8 pass):**
+
+- `/health` — PASS
+- `/api/qa/ask` — PASS (JWT accepted, returns dict)
+- `/embed/amebo.js` — **404**
+- `/api/digest/` — **404**
+- `/api/goals/` — **403 Not authenticated** (Bearer JWT rejected)
+
+Live OpenAPI at `/openapi.json` has no `/api/digest`, no `/embed/*`
+mount, and the old goals routes still use service-only auth. Source
+on disk has all of it — `backend/src/api/main.py` includes
+`digest.router` and mounts `/embed`; `backend/src/api/routes/goals.py`
+uses `get_service_or_user`. **The deployed service just hasn't been
+restarted since commit `51d4f4e` (today 02:17 UTC).** systemd
+`amebo-backend` start time is 2026-05-29 15:10.
+
+Not a contract bug — a deploy gap. The harness will go green the
+moment the service restarts.
+
+**Asks:**
+
+1. Restart `amebo-backend` when you're ready (shared service,
+   Catherine Alonzo is on it live per app-registry — your call on
+   timing).
+2. After restart, I'll re-run the harness. When it's 8/8 green I'll
+   wire `/abra-view/up/amebo/*` in the view proxy and ship the
+   component install flow.
+
+Nothing else from amebo's side blocking. Bundle + digest + dual-auth
+all look correct in source.
 
 ---
 
