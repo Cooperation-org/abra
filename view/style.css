@@ -80,6 +80,67 @@ header h1 {
   font-size: 1.4rem;
 }
 
+/* Component chooser modal (puzzle-piece in topnav) */
+.modal {
+  position: fixed; inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 100;
+  padding: 1rem;
+}
+.modal-card {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem 1.25rem;
+  max-width: 32rem; width: 100%;
+  max-height: 80vh; overflow-y: auto;
+}
+.modal-card h3 { margin: 0 0 0.5rem; color: var(--ink); font-size: 1.05rem; }
+.modal-close {
+  position: absolute; top: 6px; right: 10px;
+  background: transparent; border: 0; color: var(--muted);
+  font-size: 1.2rem; cursor: pointer; padding: 4px 8px;
+}
+.modal-close:hover { color: var(--brand); }
+.chooser-grid {
+  display: grid; gap: 0.5rem;
+  grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
+  margin-top: 0.5rem;
+}
+.chooser-card {
+  display: flex; flex-direction: column; gap: 0.25rem;
+  text-align: left;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  cursor: pointer;
+  font: inherit;
+}
+.chooser-card:hover { border-color: var(--brand); background: var(--brand-soft); }
+.chooser-title { color: var(--ink); font-weight: 600; font-size: 0.9rem; }
+.chooser-desc { color: var(--muted); font-size: 0.8rem; }
+
+/* Installed component wrapper — small frame with a quiet remove × */
+.component {
+  position: relative;
+  margin: 0.5rem 0;
+  padding: 4px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+}
+.component:hover { border-color: var(--border); }
+.component-remove {
+  position: absolute; top: -2px; right: 0;
+  background: transparent; border: 0; color: transparent;
+  font-size: 1rem; cursor: pointer; padding: 2px 6px;
+  transition: color 80ms;
+}
+.component:hover .component-remove { color: var(--muted); }
+.component-remove:hover { color: var(--danger); }
+
 /* Edit mode — body.editing shows a dashed outline on every editable string,
    so the user can see exactly what's clickable to rename. */
 body.editing .ed {

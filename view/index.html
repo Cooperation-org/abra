@@ -13,7 +13,9 @@
     <a href="__BASE__/" class="nav active" aria-label="home"><i class="fa-solid fa-house"></i></a>
     <a href="#" class="nav" onclick="if(document.body.classList.contains('editing')){document.body.classList.remove('editing');return false}history.back();return false" aria-label="back"><i class="fa-solid fa-arrow-left"></i></a>
     <button type="button" class="nav add-component"
-            onclick="alert('Components — coming. See scratch.md / data-models discussion.')"
+            hx-get="__BASE__/components/chooser"
+            hx-target="#modal-slot"
+            hx-swap="innerHTML"
             aria-label="add a component"><i class="fa-solid fa-puzzle-piece"></i></button>
     <span class="spacer"></span>
     <button type="button" class="nav" data-ui-pref="ui.show-codes" aria-label="show codes"><i class="fa-solid fa-hashtag"></i></button>
@@ -46,19 +48,17 @@
         <p class="muted">Loading…</p>
       </div>
 
-      <!-- v0 single-component smoke: a hardcoded amebo digest under the
-           tree, to verify the proxy + bundle + custom-element path end
-           to end. Real component installer lands next (writes
-           view:component.<id> bindings; this disappears). -->
-      <section class="component-slot">
-        <amebo-digest
-          data-up="__BASE__/up/amebo"
-          data-ref="amebo:digest"
-          data-scheme="amebo:digest"
-          data-path=""
-          data-org=""
-        ></amebo-digest>
-      </section>
+      <!-- Installed components — populated from view:component.<id>
+           bindings. Each entry is one section with its own remove
+           button + the right custom-element tag from sources.yaml. -->
+      <div id="installed-components"
+           hx-get="__BASE__/components/"
+           hx-trigger="load"
+           hx-swap="innerHTML"></div>
+
+      <!-- Modal slot for the component chooser (puzzle piece in topnav). -->
+      <div id="modal-slot"></div>
+
       <script src="__BASE__/up/amebo/embed/amebo.js"></script>
     </main>
 

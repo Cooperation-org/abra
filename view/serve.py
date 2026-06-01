@@ -205,6 +205,74 @@ def mint_jwt(user: dict, ttl_seconds: int = 900) -> str:
     return f"{h}.{p}.{_b64url(sig)}"
 
 
+# ── Components (view:component.<id> bindings) ───────────────────────────
+# A "component" is one user-installed view module on the homepage. Storage
+# is the pure-binding namespace data-models confirmed in scratch:
+#   name=view:component.<id>
+#     IS   / text   →  scheme key (e.g. "amebo:digest")
+#     HAS  / text qualifier="path"  → target_ref everything-after-scheme
+#     HAS  / int  qualifier="position" → display order (future drag)
+# Reads union all three to materialise an instance.
+
+def _new_component_id() -> str:
+    """8-char hex from /dev/urandom — short enough to be readable, long
+    enough to avoid collision in any one user's homepage."""
+    return os.urandom(4).hex()
+
+
+def db_list_components() -> list[dict]:
+    """All installed components for the current SCOPE, in stored order."""
+    with conn() as c, c.cursor() as cur:
+        cur.execute(
+            """
+            SELECT b.name, b.relationship, b.target_ref, b.qualifier
+            FROM bindings b
+            WHERE b.scope = %s AND b.name LIKE 'view:component.%%'
+            ORDER BY b.name, b.id
+            """,
+            (SCOPE,),
+        )
+        by_id: dict[str, dict] = {}
+        for name, rel, target_ref, qualifier in cur.fetchall():
+            inst = name[len("view:component."):]
+            d = by_id.setdefault(inst, {"id": inst, "scheme": "", "path": "", "position": 0})
+            if rel == "IS":
+                d["scheme"] = target_ref
+            elif rel == "HAS" and qualifier == "path":
+                d["path"] = target_ref or ""
+            elif rel == "HAS" and qualifier == "position":
+                try: d["position"] = int(target_ref)
+                except (ValueError, TypeError): pass
+        return sorted(by_id.values(), key=lambda x: (x["position"], x["id"]))
+
+
+def db_install_component(scheme: str, path: str = "") -> str:
+    """Create a new component instance. Returns the new instance id.
+    All writes go through AbraWriter so created_by is stamped."""
+    inst = _new_component_id()
+    name = f"view:component.{inst}"
+    w = AbraWriter()
+    try:
+        w.write_binding(SCOPE, name, rel="IS", target_type="text",
+                        target_ref=scheme, qualifier="component scheme")
+        if path:
+            w.write_binding(SCOPE, name, rel="HAS", target_type="text",
+                            target_ref=path, qualifier="path")
+    finally:
+        w.close()
+    return inst
+
+
+def db_uninstall_component(inst: str) -> None:
+    """Delete every binding under view:component.<inst>. Direct SQL —
+    AbraWriter has no batch-delete helper today."""
+    with conn() as c, c.cursor() as cur:
+        cur.execute(
+            "DELETE FROM bindings WHERE scope = %s AND name = %s",
+            (SCOPE, f"view:component.{inst}"),
+        )
+
+
 def db_top_names(q: str | None, catcode: str | None, label: str | None = None,
                  limit: int = 50) -> list[tuple[str, int, str | None, str | None]]:
     """Names with binding count, most-recent date, and a teaser qualifier.
@@ -526,6 +594,87 @@ def error_html(message: str) -> str:
     return f'<p class="error">{esc(message)}</p>'
 
 
+# ── Component HTML fragments (chooser modal + installed list) ────────────
+
+# Lazy import so the dev shim doesn't blow up if sources.py is missing.
+def _load_schemes() -> dict:
+    try:
+        sys.path.insert(0, str(ROOT / "impl" / "pgvector"))
+        import sources  # type: ignore
+        return sources.load_sources().get("schemes", {}) or {}
+    except Exception:
+        return {}
+
+
+def component_chooser_html() -> str:
+    """Modal listing every scheme registered in ~/.abra/sources.yaml.
+    Empty state names the gap honestly — no fake choices."""
+    schemes = _load_schemes()
+    if not schemes:
+        return (
+            '<div class="modal" data-modal>'
+            '<div class="modal-card">'
+            '<button type="button" class="modal-close" onclick="this.closest(\'[data-modal]\').remove()" aria-label="close">×</button>'
+            '<h3>Nothing to install yet</h3>'
+            '<p class="muted">No component schemes are registered. Populate '
+            '<code>~/.abra/sources.yaml</code> with a <code>schemes:</code> '
+            'section to make components installable.</p>'
+            '</div></div>'
+        )
+    cards = []
+    for key, spec in schemes.items():
+        cards.append(
+            f'<button class="chooser-card" type="button"'
+            f' hx-post="{u(f"/components/install")}"'
+            f' hx-vals=\'{{"scheme":"{esc(key)}"}}\''
+            f' hx-target="#installed-components" hx-swap="beforeend">'
+            f'<span class="chooser-title">{esc(spec.get("display_name") or key)}</span>'
+            f'<span class="chooser-desc">{esc(spec.get("description") or spec.get("embed") or "")}</span>'
+            f'</button>'
+        )
+    return (
+        '<div class="modal" data-modal onclick="if(event.target===this)this.remove()">'
+        '<div class="modal-card">'
+        '<button type="button" class="modal-close" onclick="this.closest(\'[data-modal]\').remove()" aria-label="close">×</button>'
+        '<h3>Add a component</h3>'
+        f'<div class="chooser-grid">{"".join(cards)}</div>'
+        '</div></div>'
+    )
+
+
+def component_element_html(comp: dict) -> str:
+    """Render one installed component. Looks up the scheme's embed tag
+    from sources.yaml, sets the canonical data-* attributes, returns a
+    standalone wrapper that includes its own remove button."""
+    schemes = _load_schemes()
+    spec = schemes.get(comp["scheme"], {})
+    tag = spec.get("embed") or "div"
+    inst = comp["id"]
+    return (
+        f'<section class="component" id="component-{esc(inst)}" data-component-id="{esc(inst)}">'
+        f'<button type="button" class="component-remove"'
+        f'   hx-delete="{u(f"/components/{esc(inst)}")}" hx-confirm="Remove this component?"'
+        f'   hx-target="#component-{esc(inst)}" hx-swap="outerHTML"'
+        f'   aria-label="remove">×</button>'
+        f'<{tag}'
+        f' data-up="{u("/up/amebo")}"'
+        f' data-ref="{esc(comp["scheme"])}{("/" + esc(comp["path"])) if comp["path"] else ""}"'
+        f' data-scheme="{esc(comp["scheme"])}"'
+        f' data-path="{esc(comp["path"])}"'
+        f' data-org=""'
+        f'></{tag}>'
+        f'</section>'
+    )
+
+
+def installed_components_html() -> str:
+    """The list of installed components for the current scope."""
+    comps = db_list_components()
+    if not comps:
+        return ""
+    return "".join(component_element_html(c) for c in comps)
+
+
 # Linkify http(s) URLs inside a text block. Used for content blob bodies
 # where the substance is just text that may carry useful published links.
 URL_RE = re.compile(r"https?://[^\s<>\"'`]+")
@@ -794,6 +943,18 @@ class Handler(BaseHTTPRequestHandler):
             scheme, sub = m.group(1), m.group(2) or "/"
             return lambda: self._proxy(scheme, sub, method)
 
+        # Components: chooser modal, install POST, list, uninstall DELETE.
+        if method == "GET" and path == "/components/chooser":
+            return component_chooser_html
+        if method == "GET" and path == "/components/":
+            return installed_components_html
+        if method == "POST" and path == "/components/install":
+            return self._install_component
+        m = re.fullmatch(r"/components/([a-f0-9]{4,32})/?", path)
+        if m and method == "DELETE":
+            inst = m.group(1)
+            return lambda: (db_uninstall_component(inst) or "")
+
         # view-text override: writes user's edit to abra as IS-binding
         m = re.fullmatch(r"/view-text/([a-z][a-z0-9._-]*)/?", path)
         if m and method == "POST":
@@ -877,6 +1038,19 @@ class Handler(BaseHTTPRequestHandler):
         # would have done a normal _send, but we've already sent here.
         # Mark already-sent by returning a sentinel.
         return None  # noqa
+
+    def _install_component(self) -> str:
+        form = self._read_form()
+        scheme = (form.get("scheme") or "").strip()
+        path = (form.get("path") or "").strip()
+        if not scheme:
+            raise FormError("scheme is required")
+        schemes = _load_schemes()
+        if scheme not in schemes:
+            raise FormError(f"unknown scheme: {scheme}")
+        inst = db_install_component(scheme, path)
+        # Return the rendered component HTML so HTMX can append it.
+        return component_element_html({"id": inst, "scheme": scheme, "path": path, "position": 0})
 
     def _bindings_list(self) -> str:
         from urllib.parse import parse_qs as _pq
