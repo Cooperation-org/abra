@@ -110,16 +110,18 @@ header h1 {
   margin-top: 0.5rem;
 }
 .chooser-card {
-  display: flex; flex-direction: column; gap: 0.25rem;
+  display: flex; align-items: center; gap: 0.6rem;
   text-align: left;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 8px 12px;
+  padding: 10px 12px;
   cursor: pointer;
   font: inherit;
 }
 .chooser-card:hover { border-color: var(--brand); background: var(--brand-soft); }
+.chooser-icon { width: 36px; height: 36px; flex: 0 0 36px; border-radius: 6px; object-fit: cover; background: var(--bg-soft); }
+.chooser-text { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
 .chooser-title { color: var(--ink); font-weight: 600; font-size: 0.9rem; }
 .chooser-desc { color: var(--muted); font-size: 0.8rem; }
 

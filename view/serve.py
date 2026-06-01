@@ -596,40 +596,70 @@ def error_html(message: str) -> str:
 
 # ── Component HTML fragments (chooser modal + installed list) ────────────
 
-# Lazy import so the dev shim doesn't blow up if sources.py is missing.
-def _load_schemes() -> dict:
+# abra owns two catalogs side-by-side (per data-models 2026-06-01):
+#   components.yaml — trust catalog of web components (tag → name, icon,
+#                     script, integrity, schemes, required attrs)
+#   sources.yaml    — URI-scheme → resolver/embed/auth mapping
+# The chooser reads components; the renderer cross-refs schemes when
+# the component declares any. Both files load lazily; missing either
+# just degrades gracefully.
+
+def _load_components() -> dict:
     try:
         sys.path.insert(0, str(ROOT / "impl" / "pgvector"))
-        import sources  # type: ignore
-        return sources.load_sources().get("schemes", {}) or {}
+        import components as _components  # type: ignore
+        return _components.components() or {}
     except Exception:
         return {}
 
 
+def _proxify_script(url: str) -> str:
+    """Route trusted-provider scripts through the view-side proxy so the
+    bundle loads from a single origin (no CORS, no cookie domain games)
+    and the SRI hash from the catalog still applies — proxy is byte
+    pass-through. Recognises amebo.* hosts by hostname until a provider
+    registry lands."""
+    if not url:
+        return url
+    if "://amebo." in url or "://amebo/" in url:
+        from urllib.parse import urlparse
+        p = urlparse(url)
+        return u("/up/amebo") + p.path + (f"?{p.query}" if p.query else "")
+    return url
+
+
 def component_chooser_html() -> str:
-    """Modal listing every scheme registered in ~/.abra/sources.yaml.
-    Empty state names the gap honestly — no fake choices."""
-    schemes = _load_schemes()
-    if not schemes:
+    """Modal listing every component in ~/.abra/components.yaml — the
+    user's trust catalog. Empty state names the gap honestly."""
+    catalog = _load_components()
+    if not catalog:
         return (
             '<div class="modal" data-modal>'
             '<div class="modal-card">'
             '<button type="button" class="modal-close" onclick="this.closest(\'[data-modal]\').remove()" aria-label="close">×</button>'
             '<h3>Nothing to install yet</h3>'
-            '<p class="muted">No component schemes are registered. Populate '
-            '<code>~/.abra/sources.yaml</code> with a <code>schemes:</code> '
-            'section to make components installable.</p>'
+            '<p class="muted">No components are registered. Populate '
+            '<code>~/.abra/components.yaml</code> with the components you '
+            'trust to make them installable here.</p>'
             '</div></div>'
         )
     cards = []
-    for key, spec in schemes.items():
+    for tag, c in catalog.items():
+        icon = c.get("icon") or ""
+        icon_html = (
+            f'<img class="chooser-icon" src="{esc(icon)}" alt="" loading="lazy">'
+            if icon else ""
+        )
         cards.append(
             f'<button class="chooser-card" type="button"'
-            f' hx-post="{u(f"/components/install")}"'
-            f' hx-vals=\'{{"scheme":"{esc(key)}"}}\''
+            f' hx-post="{u("/components/install")}"'
+            f' hx-vals=\'{{"tag":"{esc(tag)}"}}\''
             f' hx-target="#installed-components" hx-swap="beforeend">'
-            f'<span class="chooser-title">{esc(spec.get("display_name") or key)}</span>'
-            f'<span class="chooser-desc">{esc(spec.get("description") or spec.get("embed") or "")}</span>'
+            f'{icon_html}'
+            f'<span class="chooser-text">'
+            f'<span class="chooser-title">{esc(c.get("name") or tag)}</span>'
+            f'<span class="chooser-desc">{esc(c.get("description") or "")}</span>'
+            f'</span>'
             f'</button>'
         )
     return (
@@ -643,36 +673,66 @@ def component_chooser_html() -> str:
 
 
 def component_element_html(comp: dict) -> str:
-    """Render one installed component. Looks up the scheme's embed tag
-    from sources.yaml, sets the canonical data-* attributes, returns a
-    standalone wrapper that includes its own remove button."""
-    schemes = _load_schemes()
-    spec = schemes.get(comp["scheme"], {})
-    tag = spec.get("embed") or "div"
+    """Render one installed component. The IS-binding under
+    view:component.<id> stores the **tag** (e.g. "amebo-digest"); the
+    catalog tells us which custom element + which attrs are required.
+    Thin-wiring components get data-up/data-scheme/data-path/data-org;
+    self-contained components just get the tag."""
+    catalog = _load_components()
+    tag = comp["scheme"]  # the IS target IS the component tag
+    spec = catalog.get(tag) or {}
+    schemes = spec.get("schemes") or []
+    required = set(spec.get("required") or [])
+    scheme = schemes[0] if schemes else ""
     inst = comp["id"]
+    path = comp.get("path") or ""
+
+    attrs = []
+    if "data-up" in required:
+        attrs.append(f' data-up="{u("/up/amebo")}"')
+    if scheme:
+        attrs.append(f' data-scheme="{esc(scheme)}"')
+        attrs.append(f' data-ref="{esc(scheme)}{("/" + esc(path)) if path else ""}"')
+    if "data-path" in required:
+        attrs.append(f' data-path="{esc(path)}"')
+    if "data-org" in required:
+        attrs.append(f' data-org=""')
+
     return (
         f'<section class="component" id="component-{esc(inst)}" data-component-id="{esc(inst)}">'
         f'<button type="button" class="component-remove"'
         f'   hx-delete="{u(f"/components/{esc(inst)}")}" hx-confirm="Remove this component?"'
         f'   hx-target="#component-{esc(inst)}" hx-swap="outerHTML"'
         f'   aria-label="remove">×</button>'
-        f'<{tag}'
-        f' data-up="{u("/up/amebo")}"'
-        f' data-ref="{esc(comp["scheme"])}{("/" + esc(comp["path"])) if comp["path"] else ""}"'
-        f' data-scheme="{esc(comp["scheme"])}"'
-        f' data-path="{esc(comp["path"])}"'
-        f' data-org=""'
-        f'></{tag}>'
+        f'<{esc(tag)}{"".join(attrs)}></{esc(tag)}>'
         f'</section>'
     )
 
 
 def installed_components_html() -> str:
-    """The list of installed components for the current scope."""
+    """Installed components for the scope + any provider <script> tags
+    they need. Scripts are deduped by URL and run through _proxify_script
+    so trusted-provider bundles load through the view's proxy; SRI from
+    the catalog is preserved (or skipped if it's still REPLACE_ME)."""
     comps = db_list_components()
     if not comps:
         return ""
-    return "".join(component_element_html(c) for c in comps)
+    catalog = _load_components()
+    body = "".join(component_element_html(c) for c in comps)
+    seen: dict[str, str] = {}
+    for c in comps:
+        spec = catalog.get(c["scheme"]) or {}
+        url = spec.get("script")
+        if url and url not in seen:
+            seen[url] = spec.get("integrity") or ""
+    scripts = []
+    for url, integrity in seen.items():
+        proxied = _proxify_script(url)
+        attrs = f' src="{esc(proxied)}"'
+        if integrity and not integrity.endswith("REPLACE_ME"):
+            attrs += f' integrity="{esc(integrity)}" crossorigin="anonymous"'
+        scripts.append(f"<script{attrs}></script>")
+    return body + "".join(scripts)
 
 
 # Linkify http(s) URLs inside a text block. Used for content blob bodies
@@ -1040,17 +1100,35 @@ class Handler(BaseHTTPRequestHandler):
         return None  # noqa
 
     def _install_component(self) -> str:
+        # The chooser sends `tag` (the custom-element tag, also the key
+        # in components.yaml). `path` is optional — only meaningful for
+        # components whose `required` includes data-path.
         form = self._read_form()
-        scheme = (form.get("scheme") or "").strip()
+        tag = (form.get("tag") or form.get("scheme") or "").strip()
         path = (form.get("path") or "").strip()
-        if not scheme:
-            raise FormError("scheme is required")
-        schemes = _load_schemes()
-        if scheme not in schemes:
-            raise FormError(f"unknown scheme: {scheme}")
-        inst = db_install_component(scheme, path)
-        # Return the rendered component HTML so HTMX can append it.
-        return component_element_html({"id": inst, "scheme": scheme, "path": path, "position": 0})
+        if not tag:
+            raise FormError("tag is required")
+        catalog = _load_components()
+        if tag not in catalog:
+            raise FormError(f"unknown component: {tag}")
+        # db_install_component still stores under the legacy `scheme`
+        # column — we pass the tag through it until that column is
+        # renamed. Renderer always cross-refs the catalog by this value.
+        inst = db_install_component(tag, path)
+        # HTMX appends one element. The provider <script> tag is loaded
+        # from index.html's `#installed-components` GET-on-load; on
+        # subsequent installs the script is already cached.
+        elem = component_element_html({"id": inst, "scheme": tag, "path": path, "position": 0})
+        spec = catalog.get(tag) or {}
+        script_url = spec.get("script")
+        if script_url:
+            proxied = _proxify_script(script_url)
+            integrity = spec.get("integrity") or ""
+            attrs = f' src="{esc(proxied)}"'
+            if integrity and not integrity.endswith("REPLACE_ME"):
+                attrs += f' integrity="{esc(integrity)}" crossorigin="anonymous"'
+            elem += f"<script{attrs}></script>"
+        return elem
 
     def _bindings_list(self) -> str:
         from urllib.parse import parse_qs as _pq
