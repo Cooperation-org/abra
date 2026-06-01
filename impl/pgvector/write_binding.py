@@ -60,14 +60,21 @@ def _default_writer_uri():
 
 
 class AbraWriter:
-    def __init__(self, writer_uri=None):
+    def __init__(self, writer_uri=None, dsn=None):
         """writer_uri identifies who is writing (provenance, per 2026-05 design).
-        Defaults to ABRA_WRITER_URI env or urn:abra:local:<USER>."""
+        Defaults to ABRA_WRITER_URI env or urn:abra:local:<USER>.
+
+        dsn lets callers from another repo (e.g. amebo) pass an explicit
+        connection string and avoid relying on this module's .env. If
+        omitted, falls back to PG_* env vars (legacy default)."""
         self.writer_uri = writer_uri or _default_writer_uri()
-        self.conn = psycopg2.connect(
-            host=PG_HOST, port=PG_PORT, user=PG_USER,
-            password=PG_PASSWORD, dbname=PG_DATABASE
-        )
+        if dsn:
+            self.conn = psycopg2.connect(dsn)
+        else:
+            self.conn = psycopg2.connect(
+                host=PG_HOST, port=PG_PORT, user=PG_USER,
+                password=PG_PASSWORD, dbname=PG_DATABASE
+            )
 
     def store_content(self, source_file, content, note_date=None, catcode=None):
         """Store a content blob. Returns content ID.
@@ -201,6 +208,38 @@ class AbraWriter:
         """Remove a name from the hot list."""
         cur = self.conn.cursor()
         cur.execute("DELETE FROM hot_tags WHERE scope = %s AND name = %s", (scope, name))
+        count = cur.rowcount
+        self.conn.commit()
+        cur.close()
+        return count
+
+    def set_label(self, scope, name, label, expires_at=None):
+        """Upsert a label on a name (migration 003). Multiple labels per
+        (scope, name) allowed. `added_by` is stamped from self.writer_uri
+        for provenance."""
+        label = (label or "").strip()
+        if not label:
+            raise ValueError("label must be a non-empty string")
+        cur = self.conn.cursor()
+        cur.execute(
+            """INSERT INTO labels (scope, name, label, added_by, expires_at)
+               VALUES (%s, %s, %s, %s, %s)
+               ON CONFLICT (scope, name, label) DO UPDATE SET
+                   added_by = EXCLUDED.added_by,
+                   added_at = NOW(),
+                   expires_at = EXCLUDED.expires_at""",
+            (scope, name, label, self.writer_uri, expires_at)
+        )
+        self.conn.commit()
+        cur.close()
+
+    def remove_label(self, scope, name, label):
+        """Remove a label from a name."""
+        cur = self.conn.cursor()
+        cur.execute(
+            "DELETE FROM labels WHERE scope = %s AND name = %s AND label = %s",
+            (scope, name, (label or "").strip())
+        )
         count = cur.rowcount
         self.conn.commit()
         cur.close()
