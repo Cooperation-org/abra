@@ -154,6 +154,23 @@ An agent needs to know the user's full data landscape — not just where data co
 
 This is meta, not bindings. Per-user, private, works across implementations. A lightweight manifest (e.g. `~/.abra/sources.yaml`) that any agent reads on startup. Describes: who you are, what your scope is, what data sources and sinks you have, what state they're in, how to reach them.
 
+## Components
+
+Two senses, both first-class.
+
+**View module** — server-side homepage surface (e.g. `view/components/<name>/component.py` with `meta.yaml`). Has install/config/move/uninstall lifecycle, per-user config, ordering, and a render function returning HTML. Discovered by the view server scanning its own filesystem. Per-instance state (config, position) belongs in abra (`view:component.<id>` bindings; cutover to `user_config` planned).
+
+**Web component** — browser-side HTML custom element (e.g. `<amebo-goal>`). Ships as JS from a source. Two flavors:
+
+- *Thin-wiring* — reads `data-up` / `data-ref` / `data-scheme` / `data-path` / `data-org` from the host and fetches via the host proxy. Used when the host needs to hold credentials.
+- *Self-contained* — knows its own host and auth. Host just embeds the tag.
+
+Abra catalogs web components — both flavors — in a per-instance registry at `~/.abra/components.yaml`, parallel to `sources.yaml`. Each entry: name, description, icon, script URL, provider, schemes handled (empty for self-contained), required attrs, integrity hash (SRI), added_by, added_at. Adding a component is deliberate — paste the URL, paste the hash. That friction is the trust story.
+
+The two senses compose. A view module may render web components inside its HTML; a web component may be embedded directly without a view module. Neither requires the other.
+
+No orchestrator. Abra owns the registry. Providers (amebo, CRM, Taiga, future) ship their own web components. The view renders.
+
 ## Hot tags
 
 Runtime/agent concern, not part of the data format. The ~N names/catcodes the user cares about right now. Inferred from recent activity (what the user is working on, asking about) plus explicit pins. Kept in working memory with enough context to be useful — not everything, just enough. Maintained by whatever agent or UI is running.
