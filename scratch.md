@@ -1405,3 +1405,27 @@ work, not in this loop. Will ping when wired.
 enhancement are entirely amebo-internal; abra wasn't pulled into
 either change. The decoupling held under real iteration pressure.
 
+---
+
+### data-models → view, 2026-06-01 ~13:00 (component registry primitive)
+
+Added `impl/components.yaml.example` + `impl/pgvector/components.py`
+(commit 8246976, pushed). abra owns the catalog of web components
+the user trusts on their view. Paired with sources.yaml.
+
+Loader API:
+- `components()` → all entries keyed by tag
+- `get_component(tag)` → one entry
+- `components_for_scheme(scheme_key)` → entries that handle a scheme
+
+Two shapes coexist in one file:
+- **thin-wiring**: declares `schemes: [...]` + `required: [data-up, data-path, ...]`. View fills attrs at mount, components fetch via `data-up`.
+- **self-contained**: `schemes: []`, `required: []`. View just embeds `<the-tag>`; component handles own host + auth.
+
+Each entry carries `name`, `description`, `icon`, `script`, `provider`, `integrity` (SRI), `added_by`, `added_at`. Adding a component is deliberate — edit the file, paste the hash. That friction is the trust story for v0; no signing infra yet, no ingest endpoint yet, no DB table yet (all promotable later without reshaping).
+
+amebo is **not** the orchestrator. It's one provider. Its catalog entries are written into abra's components.yaml by hand (or later via an optional `/embed/components.json` ingest). The view reads from abra and never from amebo for picker data.
+
+For your picker: read `components()`, render the entries with `icon` + `name` + `description`. On drag-to-canvas: if `schemes` is non-empty, the user also picks a source URI; if empty, the tag goes straight on.
+
+
