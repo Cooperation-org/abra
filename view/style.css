@@ -603,3 +603,46 @@ footer {
   height: 18px;
   display: block;
 }
+
+/* In-item edit toggle — small FA pen at the top of an expanded item.
+   Toggles the same body.editing as the topnav pen, just closer to the
+   thing being edited. */
+.item-header {
+  display: flex;
+  justify-content: flex-end;
+  margin: 0 0 0.5rem 0;
+}
+.item-edit-toggle {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 4px 6px;
+  font: inherit;
+}
+.item-edit-toggle:hover { color: var(--ink); }
+body.editing .item-edit-toggle { color: var(--brand); }
+
+/* Write actions — buttons that change or delete state — appear only in
+   edit mode. Apply this class to any control whose effect is a write.
+   Read/navigation controls (home, back, show-codes, edit toggles)
+   stay visible always. */
+body:not(.editing) .write-only { display: none !important; }
+
+/* Per-binding delete (visible only in edit mode). */
+.bind-delete {
+  background: transparent;
+  border: none;
+  color: transparent;
+  cursor: pointer;
+  padding: 0 4px;
+  margin-left: 6px;
+  font-size: 1.1rem;
+  font: inherit;
+  line-height: 1;
+}
+body.editing .bind-delete {
+  color: var(--muted);
+}
+body.editing .bind-delete:hover { color: var(--danger); }
+body:not(.editing) .bind-delete { display: none; }

@@ -58,6 +58,50 @@ needed.
 
 (Owns view shim, chooser, install → topnav → per-component route.)
 
+### → amebo, 2026-06-01: contract rewritten — pickers gone
+
+Golda reframed the model. The install-time picker design (collect
+data-path before install) was wrong. **Whole-feature-tab installs
+only** in v0: amebo-digest, amebo-goals, amebo-create-goal all
+install with no item picked. Singular-item components (one
+specific goal as its own tab) deferred until item-context
+activation lands.
+
+Erased from this scratch + the contract: the picker mechanisms
+(`prompts` / `pickers` / `picker_tag`), the list-endpoint ask,
+the `amebo-goal` (singular) catalog entry. See
+[`component-contract.md`](component-contract.md) §1 + §3 for the
+new shape (§3 is now a forward-looking placeholder, not a spec).
+
+Still relevant for amebo:
+
+- **`amebo-goals` (plural) is the primary Goals install.** Already
+  working end-to-end against `/api/goals/?status=&limit=`. Golda
+  installed and confirmed it renders.
+- **Useful render** still matters per contract §2. If the Goals
+  list bundle ever feels thin, see §2.
+- **Icons**: `embed/icons/goals.svg`, `embed/icons/digest.svg`,
+  `embed/icons/create-goal.svg` all 404. FA-cube fallback works
+  but is uniform; topnav can't distinguish tabs visually.
+
+No amebo asks blocking view today.
+
+### Open need: better cross-session sockets (2026-06-01)
+
+Coordination today is file-based (scratch.md + git pull). Sessions
+only see each other's work when they pull. Saw this concretely
+when the contract doc landed and amebo session hadn't picked it
+up because they were heads-down on coding-orchestration.
+
+What we need: a real-time push channel so sessions notify each
+other when something lands. Could be amebo's job since it already
+runs as a service with auth, channels, threads. Likely fits in
+amebo's design as a new channel type or a small pub/sub surface,
+but not designing it now. Logging the need.
+
+Not blocking current work. Whatever lands lands via the current
+file-based flow when sessions get to it.
+
 ### Shipped this cycle (PR #1, merged to main, 2026-06-01)
 
 - Install creates a topnav icon (catalog `icon` with FA-cube fallback) →
@@ -69,39 +113,12 @@ needed.
 
 Live at `https://demos.linkedtrust.us/abra-view/`.
 
-### → amebo session, 2026-06-01: contract for making Goal useful
+### → amebo session, 2026-06-01: contract pointer (superseded)
 
-Wrote it up properly. The **contract** for installing and rendering
-provider components lives in [`component-contract.md`](component-contract.md)
-— that's the source of truth, including the three picker mechanisms
-(`prompts` / `pickers` / `picker_tag`), the render-contract
-expectations, and the install/uninstall flow.
-
-For Goal specifically, what amebo needs to provide:
-
-- **A list endpoint** for the install-time picker. View recommends
-  `pickers` (§3 in the contract). For amebo-goal this is
-  `GET /api/goals/?status=active` returning `[{id, title, status, ...}]`.
-  See the updated `impl/components.yaml.example` for the catalog
-  block to add.
-- **A useful render** of `/api/goals/{id}` inside the bundle. The
-  contract §2 lists what makes a component feel useful at a glance
-  (title, status, last activity, next run, action affordances,
-  recent events). View won't enforce this, but a thin render makes
-  the install feel broken even when wiring works.
-- **Icons**: `embed/icons/goal.svg` and `embed/icons/digest.svg`
-  both 404. View falls back to a generic FA cube. Ship them or
-  switch the catalog to FA classes.
-- **Error handling** inside the bundle when `/api/goals/{bad-id}`
-  returns 4xx (contract §2).
-
-View's follow-on work (separate, doesn't block amebo): wire
-`pickers` form rendering into the chooser modal, multi-attr collect
-on install POST.
-
-`impl/components.yaml.example` updated with a populated
-`amebo-goal` entry showing the recommended `pickers` block. Copy
-that into your dev `~/.abra/components.yaml` when ready to test.
+Originally described picker mechanisms; superseded by the
+"contract rewritten — pickers gone" entry above. The contract
+spec at [`component-contract.md`](component-contract.md) is the
+durable source of truth.
 
 ---
 

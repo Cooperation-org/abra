@@ -6,8 +6,7 @@
 # Full contract spec: ../component-contract.md
 #
 # This file is the *catalog* — name, icon, description, where to load
-# the JS from, what schemes the component handles, and (optionally) how
-# to collect required attribute values at install time. Paired with
+# the JS from, what schemes the component handles. Paired with
 # sources.yaml (the scheme → resolver/embed/auth mapping).
 #
 # Adding a component is deliberate: paste the script URL, fetch the
@@ -18,15 +17,16 @@
 #
 #   - thin-wiring : component reads `data-up` from the host and fetches
 #                   through a proxy. List its `schemes` and `required`
-#                   attrs. Examples below: amebo-goal, amebo-digest.
+#                   attrs. Examples below: amebo-digest, amebo-goals.
 #
 #   - self-contained : component knows its own host and auth, host just
 #                      embeds the tag. `schemes: []`, `required: []`.
 #                      Example below: gmail-inbox (illustrative).
 #
-# Picking a value at install time (when `required` is non-empty):
-#   Per attr, declare ONE of `picker_tag` / `pickers` / `prompts`. View
-#   resolves in that priority order. See component-contract.md §3.
+# Scope: v0 is whole-feature-tab installs only (`required` ⊂ {data-up}).
+# Singular-item components (acting on one specific goal / person / name)
+# are handled by item-context activation, not install-time picking. See
+# component-contract.md §3.
 #
 # Trust:
 #   `integrity` is the SRI hash of the script. The view should set it
@@ -34,24 +34,6 @@
 #   `provider` and `added_by` / `added_at` are audit fields.
 
 components:
-
-  amebo-goal:
-    name:        "Goal"
-    description: "One goal's state, with dispatch / pause / resume + recent events."
-    icon:        "https://amebo.linkedtrust.us/embed/icons/goal.svg"
-    script:      "https://amebo.linkedtrust.us/embed/amebo.js"
-    provider:    "amebo"
-    schemes:     ["amebo:goal"]
-    required:    ["data-up", "data-path"]
-    # Pick a goal at install time from a live list endpoint.
-    pickers:
-      data-path:
-        source:       "/api/goals/?status=active"
-        label_field:  "title"
-        value_field:  "id"
-    integrity:   "sha384-REPLACE_ME"
-    added_by:    "urn:abra:user/golda"
-    added_at:    "2026-06-01"
 
   amebo-digest:
     name:        "Today"
@@ -65,35 +47,29 @@ components:
     added_by:    "urn:abra:user/golda"
     added_at:    "2026-06-01"
 
-  # Illustrative: text-prompt mechanism (cheaper than pickers).
-  # taiga-board:
-  #   name:        "Board"
-  #   description: "One Taiga board's columns and cards."
-  #   script:      "https://taiga-widgets.example.com/board.js"
-  #   provider:    "taiga"
-  #   schemes:     ["taiga:board"]
-  #   required:    ["data-up", "data-board"]
-  #   prompts:
-  #     data-board:
-  #       label:       "Board slug"
-  #       placeholder: "e.g. linkedtrust-roadmap"
-  #       hint:        "URL slug from the Taiga board page"
-  #   integrity:   "sha384-..."
-  #   added_by:    "urn:abra:user/golda"
-  #   added_at:    "2026-06-01"
+  amebo-goals:
+    name:        "Goals"
+    description: "All your goals — status, last activity, controls."
+    icon:        "https://amebo.linkedtrust.us/embed/icons/goals.svg"
+    script:      "https://amebo.linkedtrust.us/embed/amebo.js"
+    provider:    "amebo"
+    schemes:     []
+    required:    ["data-up"]
+    integrity:   "sha384-REPLACE_ME"
+    added_by:    "urn:abra:user/golda"
+    added_at:    "2026-06-01"
 
-  # Illustrative: provider-side picker component.
-  # odoo-contact:
-  #   name:        "Contact"
-  #   description: "One CRM contact with recent activity."
-  #   script:      "https://crm.linkedtrust.us/embed/odoo.js"
-  #   provider:    "odoo"
-  #   schemes:     ["crm:odoo"]
-  #   required:    ["data-up", "data-path"]
-  #   picker_tag:  "odoo-contact-picker"
-  #   integrity:   "sha384-..."
-  #   added_by:    "urn:abra:user/golda"
-  #   added_at:    "2026-06-01"
+  amebo-create-goal:
+    name:        "Place a thought"
+    description: "Free-text capture. Amebo proposes a name, labels, and whether to make it a clawable goal."
+    icon:        "https://amebo.linkedtrust.us/embed/icons/create-goal.svg"
+    script:      "https://amebo.linkedtrust.us/embed/amebo.js"
+    provider:    "amebo"
+    schemes:     ["amebo:intentions"]
+    required:    ["data-up"]
+    integrity:   "sha384-REPLACE_ME"
+    added_by:    "urn:abra:user/golda"
+    added_at:    "2026-06-01"
 
   # Illustrative self-contained example (no host wiring).
   # gmail-inbox:

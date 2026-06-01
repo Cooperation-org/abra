@@ -145,6 +145,14 @@ def db_delete(code: str) -> None:
 # ── Bindings browse — read-only ──────────────────────────────────────────
 # Default scope is configurable; future change is a scope picker in the UI.
 SCOPE = os.getenv("ABRA_VIEW_SCOPE", "golda")
+
+# The catcode under which the home tree renders by default. Today's
+# convention: `a001` ("version 0") holds the user's top-level subtrees
+# (golda, gitonga, linkedtrust, ...). Reserved roots (`01` Dewey, `02`
+# Wikidata, `a0` user-defined root) are still queryable, just not the
+# default home. When auth + per-user config land, this moves into
+# `user_config` keyed by the user URI.
+HOME_ROOT = os.getenv("ABRA_VIEW_HOME_ROOT", "a001")
 # Category-label suffixes that act as label-portals (clicking links to
 # ?label=<word> in the people view instead of the catcode subtree). Set
 # this via env until per-user config lands; empty default means no
@@ -430,6 +438,16 @@ def apply_view_texts(html: str, overrides: dict[str, str]) -> str:
     return html.replace("__BODY_CLASS__", " ".join(classes))
 
 
+def db_delete_binding(binding_id: int) -> None:
+    """Delete one binding by id within the active scope. Scope check
+    keeps a user from deleting another scope's row by guessing id."""
+    with conn() as c, c.cursor() as cur:
+        cur.execute(
+            "DELETE FROM bindings WHERE scope = %s AND id = %s",
+            (SCOPE, binding_id),
+        )
+
+
 def db_name_detail(name: str) -> list[dict]:
     """All bindings for one name in the active scope, joined to content
     when the binding points at a content row."""
@@ -535,7 +553,10 @@ def tree_html() -> str:
             '<p class="muted">No catcodes yet. '
             'Press <em>+ new top-level</em> to add one (e.g. <code>a0</code>).</p>'
         )
-    return f'<ul class="tree">{render(None)}</ul>'
+    # Default view: render children of HOME_ROOT, not the universe.
+    # Reserved roots (Dewey, Wikidata, true top-level) are reachable
+    # by direct URL or future "show all top-level" toggle.
+    return f'<ul class="tree">{render(HOME_ROOT)}</ul>'
 
 
 def edit_form_html(code: str, label: str) -> str:
@@ -553,15 +574,19 @@ def edit_form_html(code: str, label: str) -> str:
 
 
 def add_top_form_html() -> str:
+    """The topnav `+` adds a new category as a sibling of the
+    existing home entries (children of HOME_ROOT), not a true
+    top-level catcode. Reserved roots are managed elsewhere."""
     return (
         '<form class="add-form" id="new-form"'
         f'      hx-post="{u("/catcodes/")}"'
-        '      hx-target="#tree" hx-swap="innerHTML">'
-        '<label for="new-catcode">catcode</label>'
-        '<input type="text" id="new-catcode" name="catcode" placeholder="e.g. a0" required pattern="[a-z0-9]{2,64}" autofocus>'
+        '      hx-target="ul.tree" hx-swap="beforeend">'
+        f'<span class="prefix">{esc(HOME_ROOT)}</span>'
+        '<label for="new-suffix">suffix</label>'
+        '<input type="text" id="new-suffix" name="suffix" placeholder="e.g. 04" required pattern="[a-z0-9]+" autofocus>'
         '<label for="new-label">label</label>'
         '<input type="text" id="new-label" name="label" required style="flex:1">'
-        '<input type="hidden" name="parent_catcode" value="">'
+        f'<input type="hidden" name="parent_catcode" value="{esc(HOME_ROOT)}">'
         '<button type="submit" class="primary">add</button>'
         f'<button type="button" hx-get="{u("/catcodes/new/cancel")}" hx-target="#new-slot" hx-swap="innerHTML">cancel</button>'
         "</form>"
@@ -777,7 +802,7 @@ def component_page_html(inst: str) -> str:
   <nav class="topnav">
     <a href="{BASE}/" class="nav" aria-label="home"><i class="fa-solid fa-house"></i></a>
     <a href="#" class="nav" onclick="history.back();return false" aria-label="back"><i class="fa-solid fa-arrow-left"></i></a>
-    <button type="button" class="nav add-component"
+    <button type="button" class="nav add-component write-only"
             hx-get="{BASE}/components/chooser"
             hx-target="#modal-slot"
             hx-swap="innerHTML"
@@ -796,7 +821,7 @@ def component_page_html(inst: str) -> str:
     <main>
       <div id="flash" aria-live="polite"></div>
       {elem}
-      <div class="danger-zone">
+      <div class="danger-zone write-only">
         <p class="muted danger-warn">Deleting removes this component from your map. The data in {esc(tag.split('-')[0] if '-' in tag else 'the provider')} is not touched.</p>
         <button type="button" class="btn-danger"
                 hx-delete="{BASE}/components/{esc(inst)}"
@@ -912,13 +937,18 @@ def name_detail_html(name: str, rows: list[dict]) -> str:
     """One name's detail. Each binding is its own row; bindings that point
     at a content blob accordion the blob inline beneath the row, so
     expanding a row never jumps the page. Columns (rel/qual/tgt/date/from)
-    can be hidden/shown via the toggles in the page chrome."""
+    can be hidden/shown via the toggles in the page chrome.
+
+    In edit mode (body.editing) each row gets a small × delete button.
+    The item header carries an FA pen icon as a quick edit-mode toggle
+    so the user doesn't have to scroll to the topnav."""
     if not rows:
         return ""
 
     items: list[str] = []
     content_count = 0
     for r in rows:
+        bid = r["id"]
         rel = r["relationship"]
         qual = r.get("qualifier") or ""
         date = r.get("source_date") or (r.get("created_at") or "")[:10] or ""
@@ -930,12 +960,20 @@ def name_detail_html(name: str, rows: list[dict]) -> str:
         if has_content:
             content_count += 1
 
+        del_btn = (
+            f'<button type="button" class="bind-delete"'
+            f'   hx-delete="{u(f"/bindings/{bid}")}" hx-confirm="Delete this binding?"'
+            f'   hx-target="closest .bind-row" hx-swap="outerHTML"'
+            f'   aria-label="delete binding">×</button>'
+        )
+
         cols = (
             f'<span class="col-rel">{esc(rel)}</span>'
             f'<span class="col-qual">{esc(qual) or "—"}</span>'
             f'<span class="col-tgt">{render_target(target_type, target_ref)}</span>'
             f'<span class="col-date">{esc(date)}</span>'
             f'<span class="col-from">{esc(prov)}</span>'
+            f'{del_btn}'
         )
 
         if has_content:
@@ -958,7 +996,12 @@ def name_detail_html(name: str, rows: list[dict]) -> str:
         else:
             items.append(f'<div class="bind-row">{cols}</div>')
 
-    return f'<div class="bindings">{"".join(items)}</div>'
+    edit_toggle = (
+        '<button type="button" class="item-edit-toggle"'
+        ' onclick="document.body.classList.toggle(\'editing\')"'
+        ' aria-label="edit this item"><i class="fa-solid fa-pen"></i></button>'
+    )
+    return f'<div class="item-header">{edit_toggle}</div><div class="bindings">{"".join(items)}</div>'
 
 
 # ── request handler ──────────────────────────────────────────────────────
@@ -1043,6 +1086,11 @@ class Handler(BaseHTTPRequestHandler):
         # bindings browse
         if method == "GET" and path == "/bindings/list":
             return lambda: self._bindings_list()
+        # Single-binding delete (edit-mode in item view).
+        m = re.fullmatch(r"/bindings/(\d+)/?", path)
+        if m and method == "DELETE":
+            bid = int(m.group(1))
+            return lambda: (db_delete_binding(bid) or "")
         m_name = re.fullmatch(r"/names/([^/]{1,200})/?", path)
         if m_name and method == "GET":
             from urllib.parse import unquote
