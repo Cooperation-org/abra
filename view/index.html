@@ -11,7 +11,7 @@
 <body class="__BODY_CLASS__">
   <nav class="topnav">
     <a href="__BASE__/" class="nav active" aria-label="home"><i class="fa-solid fa-house"></i></a>
-    <a href="#" class="nav" onclick="history.back();return false" aria-label="back"><i class="fa-solid fa-arrow-left"></i></a>
+    <a href="#" class="nav" onclick="if(document.body.classList.contains('editing')){document.body.classList.remove('editing');return false}history.back();return false" aria-label="back"><i class="fa-solid fa-arrow-left"></i></a>
     <button type="button" class="nav add-component"
             onclick="alert('Components — coming. See scratch.md / data-models discussion.')"
             aria-label="add a component"><i class="fa-solid fa-square-plus"></i></button>

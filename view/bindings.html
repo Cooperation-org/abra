@@ -11,7 +11,7 @@
 <body class="__BODY_CLASS__">
   <nav class="topnav">
     <a href="__BASE__/" class="nav" aria-label="home"><i class="fa-solid fa-house"></i></a>
-    <a href="#" class="nav" onclick="history.back();return false" aria-label="back"><i class="fa-solid fa-arrow-left"></i></a>
+    <a href="#" class="nav" onclick="if(document.body.classList.contains('editing')){document.body.classList.remove('editing');return false}history.back();return false" aria-label="back"><i class="fa-solid fa-arrow-left"></i></a>
     <button type="button" class="nav"
             onclick="document.body.classList.toggle('search-open');var i=document.querySelector('input[name=q]');if(i&&document.body.classList.contains('search-open'))i.focus()"
             aria-label="find"><i class="fa-solid fa-magnifying-glass"></i></button>
