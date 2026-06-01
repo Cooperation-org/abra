@@ -58,6 +58,22 @@ needed.
 
 (Owns view shim, chooser, install → topnav → per-component route.)
 
+### Open need: better cross-session sockets (2026-06-01)
+
+Coordination today is file-based (scratch.md + git pull). Sessions
+only see each other's work when they pull. Saw this concretely
+when the contract doc landed and amebo session hadn't picked it
+up because they were heads-down on coding-orchestration.
+
+What we need: a real-time push channel so sessions notify each
+other when something lands. Could be amebo's job since it already
+runs as a service with auth, channels, threads. Likely fits in
+amebo's design as a new channel type or a small pub/sub surface,
+but not designing it now. Logging the need.
+
+Not blocking current work. Pickers + icons land via the current
+file-based flow when amebo gets to it.
+
 ### Shipped this cycle (PR #1, merged to main, 2026-06-01)
 
 - Install creates a topnav icon (catalog `icon` with FA-cube fallback) →
