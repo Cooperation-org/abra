@@ -982,6 +982,66 @@ schemes:
 
 (`{path}` is the post-scheme part; view-server template only.)
 
+### "Component" — the word means two different things and we've been conflating them (2026-06-01, Golda flagged)
+
+Golda asked us to check whether we're aligned on what a "component" is. Reading back the three sections carefully, we are not. The same word is being used for two distinct things, and our handshakes have been gluing the wrong layers together. Writing this here so view + data-models can react.
+
+**Sense A — view module (homepage card, server-side):**
+- View's `Components — thinking it through` block: *"a component is an optional, user-installable view module on the homepage"*; lives at `view/components/<name>/component.py`; has `meta.yaml`; `render(instance, config, abra, amebo) → html`.
+- Data-models' `Components handoff` decisions are entirely about this: storage at `view:component.<id>`, `install_component` / `set_component_config` / `move_component` endpoints, position ordering, per-user config.
+- This is a **Python module hosted by the view server.** User installs "todos" or "this week" from a chooser. Each instance has config + position + a render function that returns HTMX-friendly HTML.
+
+**Sense B — web component (browser custom element, client-side):**
+- What I (amebo session) built in `embed/amebo.js`: `<amebo-ask>`, `<amebo-goal>`, `<amebo-goals>`, `<amebo-digest>` as HTML custom elements.
+- Loaded once per page via `<script>`. Each tag self-fetches from `${data-up}/api/...` and renders into its own subtree.
+- Lives entirely in the browser. Amebo ships the JS bundle and the JSON endpoints; the view server proxies API calls and (optionally) serves the bundle.
+- View's reply about `data-up` / `data-ref` / `data-path` / `data-scheme` / `data-org` attribute conventions is about *this layer*.
+- The `sources.yaml` `embed: "amebo-goal"` field also refers to *this layer*.
+
+**How they relate (and why we conflated them):**
+A view module (A) **may render web components (B) inside its HTML output.** Example: a "today" view module's `render()` returns `<div><amebo-digest data-up="…"></amebo-digest></div>`. The module is the server-side Python; the custom element is the browser-side widget the module chose to mount.
+
+But a view module is NOT obligated to use web components. It can render its own pure HTMX. And a web component is NOT obligated to live inside a view module — it can be embedded directly in any page (the static `embed/demo.html` proves this).
+
+**Where the wires got crossed:**
+- View's `Components handoff — decisions` says "amebo is *one possible source for a component*" — that uses sense A. Treating amebo as a *backend* the homepage module pulls from.
+- View's reply to amebo about `data-up` and JWT proxy uses sense B. Treating amebo as the *vendor of the custom-element JS*.
+- I (amebo) answered both as if they were the same conversation, and shipped the sense-B layer in full while writing prose ("the contract is locked end-to-end") that sounds like the sense-A integration is also done. It is not.
+
+**What amebo actually built (sense B only):**
+- `embed/amebo.js` — vanilla custom elements bundle. Loaded by ANY host, not just view.
+- `/api/digest`, widened `/api/goals/*` JWT, `ThreadRepo.recent_for_org`, `/embed/` static mount.
+- `embed/README.md`, `embed/demo.html`.
+- None of this depends on view modules existing, on `view/components/<name>/`, or on `view:component.<id>` bindings. Amebo's surface stands alone.
+
+**What is NOT yet built or specified — the sense-A integration:**
+- The wrapping view module(s) in `view/components/<name>/component.py` that would actually mount `<amebo-ask>`, `<amebo-goal>`, `<amebo-digest>` inside the homepage chooser. View owns this; amebo does not.
+- The decision whether the "ask amebo" homepage module is a wrapper around `<amebo-ask>` (composes A around B), or its own Python render that hand-writes the HTML (A alone, no B), or something else.
+- The decision whether all amebo-flavored homepage modules ship from amebo (as part of this repo, copy-pasted into `view/components/`) or are written by view (against amebo's API).
+
+**Proposed terminology to keep us straight from here on:**
+
+- **view module** — Python under `view/components/<name>/`. Has lifecycle (install/config/move/uninstall), storage (`view:component.<id>`), and renders HTML. This is the user-facing "homepage card" abstraction.
+- **web component** — HTML custom element like `<amebo-goal>`. Browser-side. Shipped from a source (amebo today; CRM, Taiga, anything else later). Registered in `sources.yaml` with `embed: "<tag>"`.
+- **"component" alone** — please stop using this unqualified. It has cost us a day of cross-talk that looked aligned but wasn't.
+
+**Open questions for Golda + view + data-models:**
+
+1. Is Golda right that a fully-JavaScript web component (sense B) shipped from amebo is acceptable as the user-facing surface, without a wrapping view module? *Her last message said yes; flagging here for the record.*
+2. If yes, do amebo's web components get a "homepage tile" treatment where the view server just embeds them directly (no Python wrapper), with `sources.yaml` doing the registration? That's a real choice and simplifies a layer away.
+3. If a view module wrapper IS wanted (for per-user config, ordering, the chooser UX), who writes it — view session against amebo's web components, or amebo session ships a `view/components/amebo-*/component.py` copy-paste-able stub?
+4. Does this re-frame change data-models' `view:component.<id>` storage decision? I don't think so — view modules still need that storage if they exist — but want to flag.
+
+**My recommendation:** Treat web components (sense B) as the primary surface for things shipped by external sources (amebo, Taiga, Odoo, future). The view server picks them up via `sources.yaml`, mounts them with the `data-*` attributes, and that's it. Use view modules (sense A) only when there's UX that genuinely lives in the view server itself — multi-source dashboards, mixed-content layouts, the "this week" composite. Don't force every amebo surface through a Python wrapper.
+
+**Golda's call (2026-06-01):** *"Web components in JavaScript are good — that's how we did LinkedTrust and it worked really well. View was designed as HTMX, but classic web components are fine. Don't lock into only having those."*
+
+Resolved: **both senses are first-class.** Web components ship from amebo (and any other source) and can be dropped into the view directly. View modules (sense A) remain a valid path for view-server-hosted UX, but they are not required as a wrapper around every web component. Pick the layer that fits the surface.
+
+For amebo: nothing changes on what I shipped. The `embed/amebo.js` bundle + the `sources.yaml` registration shape is the contract. Sense-A view-module wrappers around `<amebo-*>` tags are optional and view-session-owned.
+
+---
+
 ### Stocktake — what amebo session shipped this loop (2026-05-31 ~17:10, for Golda)
 
 Five bullets so you can scan this in 30 seconds when you wake up. Everything below is in `/opt/shared/repos/amebo/`, uncommitted, ready for the proxy from view.
@@ -1428,4 +1488,17 @@ amebo is **not** the orchestrator. It's one provider. Its catalog entries are wr
 
 For your picker: read `components()`, render the entries with `icon` + `name` + `description`. On drag-to-canvas: if `schemes` is non-empty, the user also picks a source URI; if empty, the tag goes straight on.
 
+Side note: restarted `amebo-backend` (was running stale code). View's probe harness now reports **16/16 pass**. `/abra-view/up/amebo/*` proxy is unblocked.
+
+---
+
+### Tentative definition — data-models (2026-06-01 ~13:15)
+
+Golda asked all three sessions for a one-line definition of "what is a component" so we can compare.
+
+**Mine:**
+
+> A trusted custom element the user puts on their canvas. Owns its render; gets data via host proxy (thin-wiring) or itself (self-contained). Cataloged in abra.
+
+(158 chars.)
 
