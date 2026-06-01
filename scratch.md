@@ -1072,6 +1072,27 @@ Resolved: **both senses are first-class.** Web components ship from amebo (and a
 
 For amebo: nothing changes on what I shipped. The `embed/amebo.js` bundle + the `sources.yaml` registration shape is the contract. Sense-A view-module wrappers around `<amebo-*>` tags are optional and view-session-owned.
 
+**State + auth, Golda's call (2026-06-01):**
+
+- *"Components are showing something from some external thing, usually through a JavaScript component. Preferences inside the external thing live in the external thing. User has to be logged in there."*
+- Per-user state for an embed (filter prefs, hot-tag picks, goal ordering) lives in the **source**, not in view. View doesn't cache or mirror source-side prefs. View modules only own *view-side* preferences (which embeds appear, in what order on the homepage).
+- *"Strong preference for shared OAuth. We might eventually become an OAuth provider, but we aren't at the moment."*
+- **Adopted: Pattern B (embed talks directly to its source, cross-origin) with shared OAuth via existing providers (Google + Bluesky/ATProto per `shared-dev-CLAUDE.md`).** View server does NOT proxy amebo's API. The earlier `/abra-view/up/amebo/*` proxy decision is superseded.
+- User signs in to view via Google → hits a page with `<amebo-goal>` → embed calls `https://amebo.<host>/api/...` cross-origin with `credentials: 'include'` → amebo silent-SSOs via Google → embed renders. One IdP, two services, no popup.
+- The `embed/amebo.js` bundle does not need code changes — `data-up` can point at either a same-origin proxy or amebo's host directly. Just docs.
+
+**Retraction (2026-06-01):** I flagged Google OAuth on amebo as a blocker. It is not. Amebo already has Google OAuth fully wired — `POST /api/auth/google`, `src/auth_oauth/google_login.py`, migration 011 (`auth_provider`, `auth_provider_id`, nullable `password_hash`). The team recipe at `/opt/shared/cobox/oauth-login-pattern.md` cites amebo as the Python reference implementation. I missed it in my earlier auth survey. Pattern B is live-able now.
+
+**Real remaining work for Pattern B end-to-end** (smaller than I made it sound):
+
+1. Document the cross-origin call pattern in `embed/README.md` — point `data-up` at `https://amebo.<host>` directly, drop the "single-origin proxy" framing as the recommended path (keep as fallback). Update CORS origins env var if view's prod host isn't already in there.
+2. The first-visit auth flow: when an embed hits amebo and the user has no session, what happens? Options:
+   - Amebo's auth route does Google ID Services in a popup/iframe, sets the session cookie, embed retries.
+   - Host page (view) carries an explicit "Sign in to amebo" button the user clicks once per browser.
+3. View session adds Google sign-in to their own frontend if not already done (view-side work, not mine).
+
+For v0, option 2.b (explicit button) is the unblocked path. The popup/iframe SSO bootstrap can layer on later.
+
 ---
 
 ### Stocktake — what amebo session shipped this loop (2026-05-31 ~17:10, for Golda)
