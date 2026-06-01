@@ -69,105 +69,39 @@ needed.
 
 Live at `https://demos.linkedtrust.us/abra-view/`.
 
-### → amebo session, 2026-06-01: what view needs to make Goal *useful*
+### → amebo session, 2026-06-01: contract for making Goal useful
 
-Today's `<amebo-goal>` mounts fine and the install flow puts it on
-its own page, but a goal can't be useful until two things land on
-your side. Below are the **shapes** view needs from amebo, framed
-as contracts so view code doesn't need to learn goal semantics.
+Wrote it up properly. The **contract** for installing and rendering
+provider components lives in [`component-contract.md`](component-contract.md)
+— that's the source of truth, including the three picker mechanisms
+(`prompts` / `pickers` / `picker_tag`), the render-contract
+expectations, and the install/uninstall flow.
 
-**1. Pick-a-goal at install time.** When the user clicks "Goal" in
-the chooser, they need to choose *which* goal. Three options for
-amebo to pick from, easiest first:
+For Goal specifically, what amebo needs to provide:
 
-  - **(a) Prompt text input.** Catalog grows a `prompts` block per
-    required attr:
-    ```yaml
-    amebo-goal:
-      required: ["data-path"]
-      prompts:
-        data-path:
-          label: "Goal ID"
-          placeholder: "e.g. 42"
-          hint: "Find this in the amebo goals list at amebo.linkedtrust.us/goals"
-    ```
-    View renders a form from `prompts`; user pastes id. Cheapest,
-    ugly UX (user has to leave to find an id).
+- **A list endpoint** for the install-time picker. View recommends
+  `pickers` (§3 in the contract). For amebo-goal this is
+  `GET /api/goals/?status=active` returning `[{id, title, status, ...}]`.
+  See the updated `impl/components.yaml.example` for the catalog
+  block to add.
+- **A useful render** of `/api/goals/{id}` inside the bundle. The
+  contract §2 lists what makes a component feel useful at a glance
+  (title, status, last activity, next run, action affordances,
+  recent events). View won't enforce this, but a thin render makes
+  the install feel broken even when wiring works.
+- **Icons**: `embed/icons/goal.svg` and `embed/icons/digest.svg`
+  both 404. View falls back to a generic FA cube. Ship them or
+  switch the catalog to FA classes.
+- **Error handling** inside the bundle when `/api/goals/{bad-id}`
+  returns 4xx (contract §2).
 
-  - **(b) List endpoint + dropdown.** `GET /api/goals/?status=active`
-    returns `[{id, title, status, last_event_at}]`. View renders
-    a dropdown in the install form. Catalog declares the source:
-    ```yaml
-    amebo-goal:
-      required: ["data-path"]
-      pickers:
-        data-path:
-          source: "/api/goals/?status=active"
-          label_field: "title"
-          value_field: "id"
-    ```
-    Better UX, view stays scheme-agnostic.
+View's follow-on work (separate, doesn't block amebo): wire
+`pickers` form rendering into the chooser modal, multi-attr collect
+on install POST.
 
-  - **(c) Picker web component.** amebo ships `<amebo-goal-picker>`
-    that handles list + pick. Emits a `change` event with the
-    selected id; view's chooser modal listens and submits the
-    install. Catalog:
-    ```yaml
-    amebo-goal:
-      required: ["data-path"]
-      picker_tag: "amebo-goal-picker"
-    ```
-    Cleanest separation, more work for amebo.
-
-  View **prefers (b)** for goals: small, generic, no new catalog
-  primitive. View will implement `pickers` once amebo declares it.
-
-**2. Render contract on `/api/goals/{id}`.** view doesn't need to
-know the shape since the bundle reads it, **but** for the page to
-feel *useful at a glance*, the bundle's UI should show at least:
-
-  - Title (so the user remembers what the goal is for)
-  - Status (active / paused / done / blocked)
-  - Last activity timestamp + a one-line summary of the last event
-  - Next scheduled run (if cron-based)
-  - Action affordances (dispatch now / pause / resume) — already
-    documented in `embed/README.md`
-  - Recent N events as a small log
-
-  This is a hint, not a contract. view will mount the tag and
-  trust amebo's component to render the goal. If it looks thin,
-  the user perceives the *install* as broken even though install
-  works. Mention in case the bundle currently shows only an id.
-
-**3. Bundle icons.** Catalog references
-`https://amebo.linkedtrust.us/embed/icons/digest.svg` and
-`.../goal.svg`. Both 404 today. View falls back to a generic FA
-cube so installs aren't invisible, but the topnav can't visually
-distinguish "Today" from "Goal" until you ship the SVGs. Two paths:
-
-  - Ship `embed/icons/digest.svg` and `embed/icons/goal.svg` from
-    amebo backend's `/embed/` static mount. Simplest.
-  - Or update `components.yaml` to use FA classes instead of img
-    URLs (lighter, no static asset). Either works for view.
-
-**4. Error shape for invalid id.** If install proceeds with a bad
-`data-path` (e.g. via the text-input fallback), the bundle today
-shows "missing data-path" for empty, but a 404 from `/api/goals/{bad-id}`
-should also render a clear "goal not found — uninstall this
-component" message inside the section. View can't do this from
-its side; it's bundle-internal.
-
-**Not on amebo's plate, view's own work after you land (1):**
-implement the `prompts` / `pickers` form rendering in the chooser,
-then collect the values and POST to `/components/install` along
-with `tag`. Today the install POST already accepts
-`form.get("path")` for `data-path`; extending to multi-attr is a
-small view-side change.
-
-**Boundary stays intact:** amebo doesn't know about abra's chooser;
-view doesn't import any amebo code. The contract is the catalog
-fields + the goals list endpoint. Same shape works for the next
-provider (taiga boards, odoo contacts, etc.).
+`impl/components.yaml.example` updated with a populated
+`amebo-goal` entry showing the recommended `pickers` block. Copy
+that into your dev `~/.abra/components.yaml` when ready to test.
 
 ---
 

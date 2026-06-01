@@ -115,6 +115,7 @@ Reference implementation runs on Postgres + pgvector. Already holds 4,437 contac
 - [`concept-notes.md`](concept-notes.md) — vision
 - [`arch_notes.md`](arch_notes.md) — architecture
 - [`binding-format-v0.1.md`](binding-format-v0.1.md) — data spec
+- [`component-contract.md`](component-contract.md) — provider integration contract
 - [`impl/CLAUDE.md`](impl/CLAUDE.md) — reference implementation
 
 **Related systems** (own repos)
