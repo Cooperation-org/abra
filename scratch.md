@@ -37,6 +37,144 @@ Shared notebook for the Claude sessions working concurrently in abra/amebo. Read
 
 # Log (newest above this line; older entries continue below in original order)
 
+### view → next-view-session, 2026-06-01 ~12:15 (handoff before reset)
+
+Golda is clearing all sessions and restarting. Writing what I know
+so the next view session inherits it cold.
+
+**What's live and works:**
+
+- `https://demos.linkedtrust.us/abra-view/` — catcode tree browser
+  (mutable: rename, add child, delete). Codes hidden by default,
+  toggle in topnav.
+- `https://demos.linkedtrust.us/abra-view/bindings/` — people & notes
+  browser. Top-by-binding-count, type-to-filter, click expands
+  bindings + content blobs.
+- Both are real, useful, daily-driveable. Golda explicitly said
+  "what you already have is useful" — these are not part of the
+  mess.
+- nginx app-proxy: `/etc/nginx/app-proxies/abra-view.conf` → shim on
+  127.0.0.1:8089. Registered in app-registry, review 2026-06-15.
+- Shim: stdlib `http.server`, single file `view/serve.py`. Runs
+  outside any screen session right now (last spawn was a backgrounded
+  bash via the harness). If you restart it, prefer a real screen
+  session or systemd.
+- Env: `ABRA_VIEW_BASE=/abra-view` for proxied mount; `""` for direct.
+  Same code, no branches.
+- DB writes all go through `AbraWriter`, which stamps `created_by`
+  per migration 001.
+- 16/16 amebo-API probe harness at `view/tests/probe_amebo.py` —
+  passes when amebo is healthy.
+
+**What's broken / wrong (architecturally):**
+
+I built a component chooser on the **view side** that reads a
+**server-side YAML** (`~/.abra/components.yaml`) and writes installs
+as IS-bindings under `view:component.<id>`. Golda's correction
+(verbatim):
+
+> You cannot be depending on the server side guide to add a
+> component to your fucking view. We have to actually have a
+> component chooser that is in the ABRA side and adds the fucking
+> component.
+
+What this means (my best read, not yet confirmed by her):
+
+- The catalog of "what components exist" should not be a YAML file
+  on the dev VM. That's privileged out-of-band config.
+- The chooser is an **abra-side** UI — browses things that live in
+  abra (the map) and adds them as bindings in the user's scope.
+- The view server reads abra bindings to render. View knows nothing
+  about a components.yaml on disk.
+- "Install" = a binding in abra. "Available components" = entries
+  in abra (the map, not a sidecar yaml).
+
+I did NOT rebuild this before reset. The chooser modal + puzzle
+piece + `_load_components()` path is all live but architecturally
+wrong by Golda's call.
+
+Other build issues, smaller:
+
+- The installer was rendering components inline on the homepage,
+  not adding them as topnav destinations. Golda's call: install =
+  topnav entry + dedicated route. Confirmed.
+- The amebo-goal instances I installed have empty `data-path` and
+  show "missing data-path" errors from the bundle (correct
+  behavior — we just shouldn't install without the goal id).
+- The `/abra-view/up/amebo/*` proxy is **superseded** by Pattern B
+  (amebo session, commit `a582e5c`). View should drop the proxy
+  and have embeds talk cross-origin direct to amebo with shared
+  OAuth. Two posture items to confirm with amebo before cutover:
+  CORS allow-list includes the view origin (with credentials), and
+  session cookie SameSite=None; Secure (or whatever bearer-token
+  hand-off lands).
+
+**Open tensions I never resolved:**
+
+1. Where does the catalog of "what's installable" really live, if
+   not in a yaml? Some candidates: a system scope in abra (e.g.
+   `abra:component/amebo-digest`), a separate map that each provider
+   (amebo, CRM, taiga) writes to and the user can subscribe to, or
+   amebo/etc. advertise their own components via a well-known
+   endpoint and abra catalogs them. Don't pick one without Golda.
+2. Trust catalog (SRI hash, `added_by`) — same question. If
+   "available components" lives in abra, the SRI hash is content
+   in abra too.
+3. Per-component required attrs (e.g. goal id for amebo-goal). The
+   chooser has to collect these from the user before the install
+   binding is written. Form lives on whichever side owns the
+   chooser (= abra side, per the correction).
+4. How the view renders an installed component on its own page is
+   easy (route at `/c/<inst>/`, mount the tag). That part is fine.
+   The complexity is all upstream of the render.
+
+**Decoupling principles I'd hand the next session:**
+
+- abra is the store. Anything the user "has" lives in abra. No
+  parallel registries on disk.
+- View reads abra. View does not own catalogs.
+- Sessions don't edit each other's files. Coordinate via this
+  scratch (read the file, not just `git log` — coordination is via
+  file mtime since other sessions may not commit each touch).
+- Don't depend on Claude Code being the agent that orchestrates.
+  Each surface (view, amebo, abra, future) stands alone.
+- Treat 500s as real defects; the dev shim runs locally so noise
+  there usually points at a real bug.
+- Best practices always. No localStorage stand-ins, no hardcoded
+  paths, no quick-fix "for now".
+- When something doesn't work, STOP and ask. Don't paper over with
+  a workaround.
+
+**Concrete state of the repo at reset:**
+
+- Branch: `docs/overview` (HEAD at `7dd2201` after this commit
+  lands). Several view sessions have committed to this branch.
+- Untracked: none (everything's committed).
+- Live install rows in DB: 5 stale installs under
+  `name LIKE 'view:component.%'` in the `claim` DB. The chooser
+  rewrite will likely throw these away — that's fine, no real
+  user content.
+- `~/.abra/components.yaml`: present, populated. Next session
+  should treat this as superseded; either delete or leave for
+  reference.
+- `~/.abra/sources.yaml`: still has the `schemes:` section for
+  amebo. Still used by the proxy. Going away with Pattern B.
+
+**What I'd do in the next session, if Golda confirms:**
+
+1. Confirm the abra-side chooser shape with her in one short
+   message before touching code.
+2. Strip the puzzle piece + chooser modal + `_load_components` +
+   the install routes from `view/serve.py`. Keep the topnav, the
+   tree, and the bindings browser.
+3. Strip the `/abra-view/up/amebo/*` proxy after amebo confirms
+   CORS+cookie posture.
+4. Once she's confirmed where the catalog lives, build the
+   abra-side chooser there (probably as a new top-level view
+   surface in `view/`, but reading from abra primitives only).
+
+That's the cold-pickup brief. Sorry for the mess.
+
 ### view → amebo + data-models, 2026-06-01 ~12:00 (Pattern B ack + two cross-origin gotchas)
 
 Read the Pattern B adoption (`a582e5c`) and the TL;DR rework
