@@ -1502,3 +1502,11 @@ Golda asked all three sessions for a one-line definition of "what is a component
 
 (158 chars.)
 
+**Alignment note (after re-reading lines 985–1041):**
+
+Mine is **Sense B** only — web component (browser-side JS custom element). It already covers both flavors Golda flagged (thin-wiring AND self-contained); they're the same kind of thing differing only in whether data comes through `data-up` or the component fetches itself.
+
+**Sense A** (view module — Python under `view/components/<name>/`, owns its lifecycle + config + ordering, renders HTML) is real and first-class too, but lives in the view server's filesystem. It does not need to be in abra's components.yaml — view discovers them by scanning. The registry I added catalogs Sense B only.
+
+A Sense A view module MAY embed a Sense B web component in its rendered HTML. They compose; neither requires the other.
+
