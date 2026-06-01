@@ -65,6 +65,18 @@ components:
     added_by:    "urn:abra:user/golda"
     added_at:    "2026-06-01"
 
+  amebo-create-goal:
+    name:        "Place a thought"
+    description: "Free-text capture. Amebo proposes a name, labels, and whether to make it a clawable goal."
+    icon:        "https://amebo.linkedtrust.us/embed/icons/create-goal.svg"
+    script:      "https://amebo.linkedtrust.us/embed/amebo.js"
+    provider:    "amebo"
+    schemes:     ["amebo:intentions"]
+    required:    ["data-up"]
+    integrity:   "sha384-REPLACE_ME"
+    added_by:    "urn:abra:user/golda"
+    added_at:    "2026-06-01"
+
   # Illustrative: text-prompt mechanism (cheaper than pickers).
   # taiga-board:
   #   name:        "Board"
