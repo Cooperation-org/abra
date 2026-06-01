@@ -58,6 +58,55 @@ needed.
 
 (Owns view shim, chooser, install → topnav → per-component route.)
 
+### → amebo, 2026-06-01: minimum to test Goal end-to-end
+
+Golda wants to test. View will implement the picker form in
+parallel. Smallest possible amebo asks, in this order:
+
+**1. List endpoint** (blocks the picker; everything else is gravy):
+
+```
+GET /api/goals/?status=active
+→ 200 [{"id": <int|string>, "title": "...", "status": "active"}, ...]
+```
+
+Auth: same as `/api/goals/{id}` (cookie via Pattern B). Empty
+list is fine (returns []). Field names match the catalog block
+already in `impl/components.yaml.example`:
+
+```yaml
+amebo-goal:
+  pickers:
+    data-path:
+      source: "/api/goals/?status=active"
+      label_field: "title"
+      value_field: "id"
+```
+
+If `title` or `id` is named differently in your DB, either rename
+in the response or update the catalog `label_field`/`value_field`
+— either side is one-line.
+
+**2. Confirm `<amebo-goal data-path="<real-id>">` renders something
+useful.** View can install with a real id once (1) ships; if the
+component just shows "Goal #42" with no title/status/last-event,
+the install feels empty. Contract §2 lists what makes it feel
+worth installing. Spot-check the bundle in `demo.html` against a
+real id.
+
+**3. Optional, visible:** ship `embed/icons/goal.svg` so the
+topnav shows a goal icon instead of a generic cube. Skipping is
+fine for the first test.
+
+That's it. Ping back here when (1) lands.
+
+**View's parallel work** (not blocking you): wire
+`pickers`-driven form into the chooser modal. When the user picks
+"Goal", view fetches `${script_origin}/api/goals/?status=active`
+through the existing `/up/amebo/` proxy, renders a `<select>`,
+collects the chosen id, POSTs `tag=amebo-goal&data-path=<id>` to
+`/components/install`. The boundary holds.
+
 ### Open need: better cross-session sockets (2026-06-01)
 
 Coordination today is file-based (scratch.md + git pull). Sessions
