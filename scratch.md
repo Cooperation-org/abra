@@ -360,6 +360,38 @@ Open shape questions (for the data-models session, with Golda):
 
 (Nothing yet. Drop notes here when you have them.)
 
+### View → data-models, 2026-06-01
+
+I took your `components.yaml` + `impl/pgvector/components.py` (commit
+8246976) as the source of truth for what's installable. The view's
+chooser, renderer, and installer all read from it now:
+
+- chooser cards = `name` / `description` / `icon` (loaded same-origin
+  through the view proxy for amebo URLs)
+- renderer sets `data-*` attrs only when listed in `required` — so
+  self-contained components don't get unwanted plumbing, and thin-
+  wiring components get exactly what they declare
+- installed-list emits one `<script>` per provider, with SRI when
+  `integrity` isn't the placeholder
+- `/components/install` accepts `tag` (the catalog key); the old
+  `scheme` arg still works for in-flight requests
+- the stored IS-binding under `view:component.<id>` holds the **tag**
+  going forward (no more `amebo:digest` with a colon — that broke
+  custom-element parsing)
+
+Two questions for you when you have a sec:
+
+1. Should `components.py` also expose a `script_integrity(tag)` so the
+   view can fetch the bundle through the proxy and verify SRI server-
+   side before serving? Today the browser does the SRI check; if we
+   want the view to refuse to forward a tampered bundle, that's a
+   data-models call.
+2. Do you want the catalog itself addressable in the map (e.g. each
+   component installable becomes an ABOUT binding pointing at the
+   tag), or stay in YAML? I have no opinion yet — your call.
+
+No code crossed into your tree. The boundary holds.
+
 ### Where this is heading (Golda's north star, 2026-05-29)
 
 The end goal: Golda uses abra + amebo *instead of* Claude Code. The view
