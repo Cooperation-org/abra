@@ -1,15 +1,25 @@
 #!/usr/bin/env bash
-# abra — query your contacts, notes, and relationships
+# abra — query and write contacts, notes, and relationships
 #
-# Usage:
+# Read:
 #   abra who "credentials"         Find people by topic
 #   abra about eric-shepherd       Everything known about a name
 #   abra when 2025-10              Who did I meet that month?
-#   abra when 2025-07 2025-09      Date range
 #   abra search "cooperative"      Search note content
 #   abra related linkedtrust       Who is related to X?
 #   abra refs                      List LT reference docs
 #   abra names kevin               Browse names by prefix
+#   abra hot                       List hot tags (warm context)
+#   abra hot alonovo               Show hot tag definition
+#   abra read bobbi-vernon         Read full note content
+#
+# Write:
+#   abra store <name> "text"       Store content and bind to a name
+#   abra store <name> -f file.txt  Store content from a file
+#   abra bind <name> IS "Full Name"   Create a binding
+#   abra hot set <name>            Mark as hot (30 day expiry)
+#   abra hot set <name> --days 90  Custom expiry
+#   abra hot unset <name>          Remove hot tag
 #
 # For more complex queries, ask Claude:
 #   "use abra to find everyone I know in healthcare credentialing"

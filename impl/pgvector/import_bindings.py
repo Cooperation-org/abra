@@ -136,12 +136,17 @@ def import_staging(staging_file, dry_run=False):
                 skipped_pii += 1
                 continue
 
+            catcode = b.get('catcode')
+            catcodes = [catcode] if catcode else []
             cur.execute(
-                """INSERT INTO bindings (scope, name, relationship, target_type, target_ref, qualifier, permanence, source_date, catcode)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                """INSERT INTO bindings
+                   (scope, name, relationship, target_type, target_ref, qualifier, permanence,
+                    source_date, catcode, catcodes, created_by)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 (b['scope'], b['name'], b['relationship'], b['target_type'],
                  target_ref, b.get('qualifier'), b.get('permanence', 'CURRENT'),
-                 entry.get('note_date'), b.get('catcode'))
+                 entry.get('note_date'), catcode, catcodes,
+                 b.get('created_by', 'urn:abra:import:staged-bindings'))
             )
 
         imported += 1

@@ -1,0 +1,605 @@
+/* abra view — catcodes
+ * Minimal styles, no framework. Dark slate + teal to match the team palette,
+ * but small enough to live and breathe on its own.
+ */
+:root {
+  --bg: #0f172a;
+  --surface: #1e293b;
+  --surface-2: #273449;
+  --border: #334155;
+  --ink: #f1f5f9;
+  --ink-2: #cbd5e1;
+  --muted: #94a3b8;
+  --brand: #14b8a6;
+  --brand-soft: rgba(20, 184, 166, 0.12);
+  --danger: #f43f5e;
+  --radius: 6px;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  padding: 0;
+}
+
+/* Top navigation — FontAwesome icons only, tiny, at the literal top of
+   the page. Home / back / plus (contextual: add or find) / show codes /
+   edit. No words. */
+.topnav {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  padding: 0;
+  border-bottom: 1px solid var(--border);
+}
+.topnav .nav {
+  padding: 6px 12px;
+  color: var(--muted);
+  text-decoration: none;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font-size: 0.85rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.topnav .nav:hover { color: var(--brand); }
+.topnav .nav.active { color: var(--brand); }
+.topnav .spacer { flex: 1; }
+body.show-codes .topnav .nav[data-ui-pref="ui.show-codes"] { color: var(--brand); }
+body.editing .edit-toggle { color: var(--brand); }
+body.editing .ed:empty::before { content: "·"; color: var(--muted); }
+
+/* Search box hidden by default on the people view; plus reveals it. */
+body:not(.search-open) .search-row { display: none; }
+.search-row { margin-top: 0.5rem; }
+
+/* Content sits close to the left edge. No big margin. Tight by default;
+   the user can rename the heading text away if they want even less chrome. */
+.page {
+  padding: 0.5rem 0.75rem 2rem;
+  max-width: none;
+}
+@media (min-width: 900px) {
+  .page { padding-left: 1rem; padding-right: 1rem; }
+}
+header { margin-bottom: 0.5rem; }
+header h1 { font-size: 1.15rem; margin: 0; }
+.lead { font-size: 0.85rem; margin: 0.15rem 0 0.5rem; }
+body:not(.editing) .lead { display: none; }
+body:not(.editing) header h1 { display: none; }
+
+header h1 {
+  font-family: "Special Elite", ui-monospace, "Cascadia Mono", "Source Code Pro", monospace;
+  margin: 0 0 0.25rem;
+  color: var(--brand);
+  font-size: 1.4rem;
+}
+
+/* Component chooser modal (puzzle-piece in topnav) */
+.modal {
+  position: fixed; inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 100;
+  padding: 1rem;
+}
+.modal-card {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem 1.25rem;
+  max-width: 32rem; width: 100%;
+  max-height: 80vh; overflow-y: auto;
+}
+.modal-card h3 { margin: 0 0 0.5rem; color: var(--ink); font-size: 1.05rem; }
+.modal-close {
+  position: absolute; top: 6px; right: 10px;
+  background: transparent; border: 0; color: var(--muted);
+  font-size: 1.2rem; cursor: pointer; padding: 4px 8px;
+}
+.modal-close:hover { color: var(--brand); }
+.chooser-grid {
+  display: grid; gap: 0.5rem;
+  grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
+  margin-top: 0.5rem;
+}
+.chooser-card {
+  display: flex; align-items: center; gap: 0.6rem;
+  text-align: left;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  cursor: pointer;
+  font: inherit;
+}
+.chooser-card:hover { border-color: var(--brand); background: var(--brand-soft); }
+.chooser-icon { width: 36px; height: 36px; flex: 0 0 36px; border-radius: 6px; object-fit: cover; background: var(--bg-soft); }
+.chooser-text { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
+.chooser-title { color: var(--ink); font-weight: 600; font-size: 0.9rem; }
+.chooser-desc { color: var(--muted); font-size: 0.8rem; }
+
+/* Installed component wrapper — small frame with a quiet remove × */
+.component {
+  position: relative;
+  margin: 0.5rem 0;
+  padding: 4px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+}
+.component:hover { border-color: var(--border); }
+.component-remove {
+  position: absolute; top: -2px; right: 0;
+  background: transparent; border: 0; color: transparent;
+  font-size: 1rem; cursor: pointer; padding: 2px 6px;
+  transition: color 80ms;
+}
+.component:hover .component-remove { color: var(--muted); }
+.component-remove:hover { color: var(--danger); }
+
+/* Edit mode — body.editing shows a dashed outline on every editable string,
+   so the user can see exactly what's clickable to rename. */
+body.editing .ed {
+  outline: 1px dashed var(--brand);
+  outline-offset: 2px;
+  background: rgba(20, 184, 166, 0.06);
+  cursor: text;
+}
+body.editing .ed:focus {
+  outline: 1px solid var(--brand);
+  background: var(--brand-soft);
+}
+.edit-toggle { /* same shape as show-codes */ }
+body.editing .edit-toggle { color: var(--brand); }
+
+/* Codes are technical addresses — hidden by default; toggle to reveal. */
+.code { display: none; }
+body.show-codes .code {
+  display: inline-block;
+  font-family: ui-monospace, "Cascadia Mono", "Source Code Pro", monospace;
+  color: var(--brand);
+  font-size: 0.78rem;
+  min-width: 7rem;
+}
+.lead { color: var(--ink-2); margin: 0 0 1.5rem; }
+.muted { color: var(--muted); font-size: 0.85rem; }
+code {
+  background: var(--surface);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-family: ui-monospace, "Cascadia Mono", "Source Code Pro", monospace;
+  font-size: 0.9em;
+}
+a { color: var(--brand); }
+a:hover { color: #2dd4bf; }
+
+main { margin-top: 1rem; }
+
+.top-actions {
+  margin-bottom: 0.75rem;
+}
+
+button, .btn {
+  background: var(--surface);
+  color: var(--ink-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: border-color 80ms, color 80ms;
+}
+button:hover, .btn:hover { color: var(--brand); border-color: var(--brand); }
+button.danger:hover { color: var(--danger); border-color: var(--danger); }
+button.primary {
+  background: var(--brand);
+  color: var(--bg);
+  border-color: var(--brand);
+  font-weight: 600;
+}
+button.primary:hover { background: #2dd4bf; color: var(--bg); }
+
+input[type="text"] {
+  background: var(--bg);
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 0.9rem;
+  font-family: ui-monospace, "Cascadia Mono", "Source Code Pro", monospace;
+}
+input[type="text"]:focus {
+  outline: none;
+  border-color: var(--brand);
+}
+label { color: var(--muted); font-size: 0.8rem; margin-right: 0.25rem; }
+
+/* Tree */
+ul.tree, ul.children {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+ul.children {
+  margin-left: 0.75rem;
+  border-left: 1px dashed var(--border);
+  padding-left: 0.5rem;
+  margin-top: 1px;
+}
+li {
+  margin: 1px 0;
+}
+.node-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 2px 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+}
+body.editing .node-row {
+  background: var(--surface);
+}
+body.editing .node-row:hover {
+  border-color: var(--border);
+}
+.code {
+  font-family: ui-monospace, "Cascadia Mono", "Source Code Pro", monospace;
+  color: var(--brand);
+  font-size: 0.85rem;
+  min-width: 7rem;
+}
+.label {
+  color: var(--ink);
+  flex: 1;
+}
+/* Per-row actions (edit/+child/delete) are chrome — hidden by default;
+   revealed in edit mode. The list-level add (`+` at the top of the
+   tree) is content-level and stays visible. */
+.actions { display: none; }
+body.editing .actions { display: flex; gap: 4px; }
+body.editing .col-toggles { display: flex; }
+body:not(.editing) .col-toggles { display: none; }
+body:not(.editing) .topnav .toggle:not(.edit-toggle) { display: none; }
+.top-actions { margin-bottom: 0.25rem; }
+.list-add {
+  background: transparent;
+  color: var(--muted);
+  border: 0;
+  cursor: pointer;
+  padding: 4px 8px;
+  font-size: 0.9rem;
+}
+.list-add:hover { color: var(--brand); }
+
+/* Inline forms — edit, add-top, add-child */
+.edit-form, .add-form {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  background: var(--brand-soft);
+  border: 1px solid var(--brand);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  margin: 4px 0;
+}
+.add-form .prefix {
+  font-family: ui-monospace, "Cascadia Mono", "Source Code Pro", monospace;
+  color: var(--brand);
+}
+
+/* Inline error banner */
+.error {
+  color: var(--danger);
+  background: rgba(244, 63, 94, 0.08);
+  border: 1px solid var(--danger);
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  margin: 6px 0;
+  font-size: 0.85rem;
+}
+#flash:empty { display: none; }
+#flash { margin-bottom: 0.5rem; }
+
+/* Filter chip — appears above search when filtered by category or hot */
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--brand-soft);
+  color: var(--ink);
+  border: 1px solid var(--brand);
+  border-radius: 999px;
+  padding: 4px 12px;
+  margin-bottom: 0.5rem;
+  font-size: 0.85rem;
+}
+.filter-chip .clear {
+  color: var(--brand);
+  text-decoration: none;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.filter-chip .clear:hover { color: var(--ink); }
+
+/* Column toggle bar — under search; click to hide a column, click again to show. */
+.col-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.8rem;
+}
+.col-toggles .ct {
+  background: transparent;
+  color: var(--ink-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 10px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.75rem;
+}
+.col-toggles .ct:hover { color: var(--brand); border-color: var(--brand); }
+.col-toggles .ct.hidden {
+  color: var(--muted);
+  background: var(--surface);
+  text-decoration: line-through;
+}
+
+/* Bindings view */
+.search-row {
+  margin-bottom: 0.75rem;
+}
+.search-row input[type="search"] {
+  width: 100%;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 0.95rem;
+}
+.search-row input[type="search"]:focus {
+  outline: none;
+  border-color: var(--brand);
+}
+
+ul.binding-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.name-card {
+  background: var(--surface);
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  margin: 4px 0;
+  padding: 0;
+}
+.name-card:hover { border-color: var(--border); }
+.name-card[open] {
+  border-color: var(--border);
+  background: var(--surface-2);
+}
+.name-card > summary {
+  list-style: none;
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+.name-card {
+  background: transparent;
+  margin: 0;
+}
+body.editing .name-card { background: var(--surface); }
+.name-card > summary::-webkit-details-marker { display: none; }
+.name-card > summary::before {
+  content: "▸";
+  color: var(--muted);
+  font-size: 0.8em;
+  margin-right: 4px;
+  transition: transform 80ms;
+}
+.name-card[open] > summary::before { content: "▾"; }
+.name-text {
+  font-weight: 600;
+  color: var(--ink);
+}
+.name-card .meta {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin-left: auto;
+  white-space: nowrap;
+}
+.name-card .teaser {
+  color: var(--ink-2);
+  font-size: 0.85rem;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail-card {
+  padding: 10px 14px 14px;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+}
+
+/* Bindings within a detail: rows with optional accordion content beneath */
+.bindings { margin: 0; padding: 0; }
+.bind-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto auto;
+  align-items: baseline;
+  gap: 0.5rem 0.75rem;
+  font-size: 0.9rem;
+  padding: 4px 0;
+  border-bottom: 1px dashed var(--border);
+  list-style: none;
+}
+.bind-row:last-child { border-bottom: none; }
+details.bind-row { display: block; }
+details.bind-row > summary {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto auto;
+  align-items: baseline;
+  gap: 0.5rem 0.75rem;
+  list-style: none;
+  cursor: pointer;
+  padding: 4px 0;
+}
+details.bind-row > summary::-webkit-details-marker { display: none; }
+details.bind-row > summary::before {
+  content: "▸";
+  color: var(--muted);
+  font-size: 0.75rem;
+  margin-right: 2px;
+}
+details.bind-row[open] > summary::before { content: "▾"; }
+
+.col-rel {
+  font-family: ui-monospace, "Cascadia Mono", "Source Code Pro", monospace;
+  font-size: 0.7rem;
+  color: var(--brand);
+  background: var(--brand-soft);
+  padding: 1px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.col-qual { color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; }
+.col-tgt {
+  color: var(--muted);
+  font-family: ui-monospace, monospace;
+  font-size: 0.8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 36ch;
+}
+.col-tgt .content-ref {
+  color: var(--brand);
+  font-family: inherit;
+  font-style: italic;
+}
+.col-date { color: var(--muted); font-size: 0.8rem; white-space: nowrap; }
+.col-from { color: var(--muted); font-size: 0.75rem; font-style: italic; white-space: nowrap; }
+
+/* Column hide/show — toggled via body class from the .col-toggles bar */
+body.hide-rel .col-rel,
+body.hide-qual .col-qual,
+body.hide-tgt .col-tgt,
+body.hide-date .col-date,
+body.hide-from .col-from { display: none; }
+
+/* Content blob — accordions under its binding row, doesn't jump the page */
+.content-blob {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  margin: 4px 0 8px 1.5rem;
+  font-size: 0.9rem;
+}
+.content-blob header {
+  color: var(--muted);
+  font-size: 0.8rem;
+  margin-bottom: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.content-blob .body {
+  white-space: pre-wrap;
+  color: var(--ink-2);
+  line-height: 1.4;
+  max-height: 22rem;
+  overflow: auto;
+}
+
+/* Mobile: collapse the row grid to wrap; bigger tap targets; less padding */
+@media (max-width: 700px) {
+  body { font-size: 16px; }
+  .topnav a, .topnav .toggle { padding: 8px 12px; font-size: 0.9rem; }
+  .name-card > summary { padding: 10px 12px; gap: 0.5rem; flex-wrap: wrap; }
+  .name-card .meta { margin-left: 0; }
+  .name-card .teaser { flex-basis: 100%; }
+  .bind-row, details.bind-row > summary {
+    grid-template-columns: auto 1fr;
+    grid-template-areas:
+      "rel  qual"
+      ".    tgt"
+      ".    date"
+      ".    from";
+  }
+  .col-rel  { grid-area: rel;  align-self: start; }
+  .col-qual { grid-area: qual; }
+  .col-tgt  { grid-area: tgt; max-width: 100%; }
+  .col-date { grid-area: date; }
+  .col-from { grid-area: from; }
+  .content-blob { margin-left: 0; }
+  .actions { opacity: 1 !important; }
+  button, .btn { min-height: 36px; padding: 8px 12px; }
+  .node-row { flex-wrap: wrap; }
+}
+@media (hover: none) {
+  /* Touch devices never get hover; keep action buttons visible always. */
+  .actions { opacity: 1; }
+  .node-row:hover { border-color: var(--border); }
+}
+
+/* htmx pending / settling */
+.htmx-request .node-row { opacity: 0.6; }
+.htmx-request button { cursor: progress; }
+
+footer {
+  margin-top: 3rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+/* Danger zone — destructive action on a component's own page. Set
+   apart from primary content so the user has to mean it. */
+.danger-zone {
+  margin-top: 3rem;
+  padding-top: 1.25rem;
+  border-top: 1px dashed var(--border);
+  text-align: center;
+}
+.danger-warn {
+  margin: 0 0 0.75rem 0;
+  font-size: 0.85rem;
+}
+.btn-danger {
+  background: transparent;
+  color: var(--danger);
+  border: 1px solid var(--danger);
+  padding: 6px 14px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 0.9rem;
+  font: inherit;
+}
+.btn-danger:hover { background: var(--danger); color: white; }
+.btn-danger i { margin-right: 6px; }
+
+/* Installed-component nav icons — image-based with FA fallback. */
+.topnav .nav .nav-icon {
+  width: 18px;
+  height: 18px;
+  display: block;
+}

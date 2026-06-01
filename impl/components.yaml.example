@@ -1,0 +1,66 @@
+# abra component registry
+#
+# Copy to ~/.abra/components.yaml and populate with the web components
+# this abra instance trusts.
+#
+# This file is the *catalog* — name, icon, description, where to load
+# the JS from, what schemes the component handles. Paired with
+# sources.yaml (the scheme → resolver/embed/auth mapping).
+#
+# Adding a component is deliberate: paste the script URL, fetch the
+# SRI hash, write down who added it and when. That friction is the
+# trust story for v0; signing infra can come later.
+#
+# Two shapes are supported and can coexist:
+#
+#   - thin-wiring : component reads `data-up` from the host and fetches
+#                   through a proxy. List its `schemes` and `required`
+#                   attrs. Examples below: amebo-goal, amebo-digest.
+#
+#   - self-contained : component knows its own host and auth, host just
+#                      embeds the tag. `schemes: []`, `required: []`.
+#                      Example below: gmail-inbox (illustrative).
+#
+# Trust:
+#   `integrity` is the SRI hash of the script. The view should set it
+#   on the <script> tag so the browser refuses a tampered bundle.
+#   `provider` and `added_by` / `added_at` are audit fields.
+
+components:
+
+  amebo-goal:
+    name:        "Goal"
+    description: "One goal's state, with dispatch / pause / resume + recent events."
+    icon:        "https://amebo.linkedtrust.us/embed/icons/goal.svg"
+    script:      "https://amebo.linkedtrust.us/embed/amebo.js"
+    provider:    "amebo"
+    schemes:     ["amebo:goal"]
+    required:    ["data-up", "data-path"]
+    integrity:   "sha384-REPLACE_ME"
+    added_by:    "urn:abra:user/golda"
+    added_at:    "2026-06-01"
+
+  amebo-digest:
+    name:        "Today"
+    description: "What to look at today."
+    icon:        "https://amebo.linkedtrust.us/embed/icons/digest.svg"
+    script:      "https://amebo.linkedtrust.us/embed/amebo.js"
+    provider:    "amebo"
+    schemes:     ["amebo:digest"]
+    required:    ["data-up"]
+    integrity:   "sha384-REPLACE_ME"
+    added_by:    "urn:abra:user/golda"
+    added_at:    "2026-06-01"
+
+  # Illustrative self-contained example (no real host yet).
+  # gmail-inbox:
+  #   name:        "Gmail unread"
+  #   description: "Unread mail at a glance."
+  #   icon:        "https://widgets.example.com/icons/gmail.svg"
+  #   script:      "https://widgets.example.com/gmail.js"
+  #   provider:    "gmail-widgets"
+  #   schemes:     []          # self-contained, no host wiring
+  #   required:    []
+  #   integrity:   "sha384-..."
+  #   added_by:    "urn:abra:user/golda"
+  #   added_at:    "2026-06-01"

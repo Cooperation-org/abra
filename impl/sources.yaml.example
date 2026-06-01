@@ -1,0 +1,74 @@
+# abra URI-scheme registry
+#
+# Copy to ~/.abra/sources.yaml and populate with the schemes your hosts
+# need. Per arch_notes.md, this file lives outside the repo because the
+# entries are per-instance (which Odoo, which Taiga, which amebo, etc.).
+#
+# Each scheme entry tells consumers (view shells, components, agents):
+#   - display_name : human label for the scheme
+#   - resolver_url : where to fetch the represented entity (or "" for
+#                    components that fetch themselves)
+#   - embed        : the custom-element tag name a view should render
+#   - auth_ref     : vault path / credential identifier for fetches
+#
+# Placeholder convention in resolver_url / auth_ref:
+#   {host} — instance host (e.g. "amebo.linkedtrust.us"); substituted
+#            by the view server from its own configuration.
+#   {org}  — current org context; substituted from request state.
+#   {path} — everything after the scheme prefix in the binding's
+#            target_ref. E.g. target_ref "amebo:goal/42" → {path}="42";
+#            "crm:odoo/contact/12345" → {path}="contact/12345".
+#
+# Placeholders are NOT resolved by abra. The consumer (view server,
+# component, or whoever fetches) substitutes. Scheme-specific names
+# like {id} stay inside a component's own internal URL composition,
+# because "id" implies the consumer knows that scheme is id-shaped.
+#
+# Add new schemes any time. There is no special-cased scheme. Amebo,
+# Taiga, Odoo, RSS, files, future systems — all use the same shape.
+
+schemes:
+  # Amebo (the friendly claw) — one possible source among many
+  amebo:goal:
+    display_name: "Amebo goal"
+    resolver_url: "https://amebo.{host}/api/goals/{path}"
+    embed:        "amebo-goal"
+    auth_ref:     "vault://orgs/{org}/amebo"
+
+  amebo:ask:
+    display_name: "Ask Amebo"
+    resolver_url: ""                    # component is self-contained, no fetch on mount
+    embed:        "amebo-ask"
+    auth_ref:     "vault://orgs/{org}/amebo"
+
+  amebo:digest:
+    display_name: "Amebo digest"
+    resolver_url: "https://amebo.{host}/api/digest"
+    embed:        "amebo-digest"
+    auth_ref:     "vault://orgs/{org}/amebo"
+
+  # CRM (Odoo) — contacts and related operational data
+  crm:odoo:
+    display_name: "Odoo contact"
+    resolver_url: "https://crm.linkedtrust.us/api/contacts/{path}"
+    embed:        "odoo-contact"
+    auth_ref:     "vault://orgs/{org}/odoo"
+
+  # Task tracker (Taiga)
+  tasks:taiga:
+    display_name: "Taiga ticket"
+    resolver_url: "https://marten.linkedtrust.us/api/issue/{path}"
+    embed:        "taiga-issue"
+    auth_ref:     "vault://orgs/{org}/taiga"
+
+  # File on the local filesystem (example of a no-auth scheme)
+  # file:
+  #   display_name: "File"
+  #   resolver_url: ""
+  #   embed:        "file-preview"
+
+  # RSS feed (example of a self-contained scheme)
+  # feed:rss:
+  #   display_name: "RSS feed"
+  #   resolver_url: "{path}"     # the URL IS the path
+  #   embed:        "rss-item"

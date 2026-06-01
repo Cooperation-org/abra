@@ -49,38 +49,63 @@ def check_pii(text):
     return False
 
 
+def _default_writer_uri():
+    """URI representing the writer when none is supplied.
+    Looks up env ABRA_WRITER_URI first, falls back to urn:abra:local:<USER>."""
+    env = os.getenv("ABRA_WRITER_URI")
+    if env:
+        return env
+    user = os.getenv("USER") or os.getenv("USERNAME") or "unknown"
+    return f"urn:abra:local:{user}"
+
+
 class AbraWriter:
-    def __init__(self):
+    def __init__(self, writer_uri=None):
+        """writer_uri identifies who is writing (provenance, per 2026-05 design).
+        Defaults to ABRA_WRITER_URI env or urn:abra:local:<USER>."""
+        self.writer_uri = writer_uri or _default_writer_uri()
         self.conn = psycopg2.connect(
             host=PG_HOST, port=PG_PORT, user=PG_USER,
             password=PG_PASSWORD, dbname=PG_DATABASE
         )
 
     def store_content(self, source_file, content, note_date=None, catcode=None):
-        """Store a content blob. Returns content ID."""
+        """Store a content blob. Returns content ID.
+        Populates both `catcode` (singular, legacy) and `catcodes` (array, current spec).
+        Stamps created_by from self.writer_uri."""
         cur = self.conn.cursor()
+        catcodes = [catcode] if catcode else []
         cur.execute(
-            "INSERT INTO content (source_file, content, note_date, catcode) VALUES (%s, %s, %s, %s) RETURNING id",
-            (source_file, content, note_date, catcode)
+            "INSERT INTO content (source_file, content, note_date, catcode, catcodes, created_by) "
+            "VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
+            (source_file, content, note_date, catcode, catcodes, self.writer_uri)
         )
         content_id = cur.fetchone()[0]
         self.conn.commit()
         cur.close()
         return content_id
 
-    def write_binding(self, scope, name, relationship, target_type, target_ref,
-                      qualifier=None, permanence="CURRENT", source_date=None, catcode=None):
-        """Write a single binding. Rejects PII in target_ref."""
+    def write_binding(self, scope, name, rel=None, target_type=None, target_ref=None,
+                      qualifier=None, permanence="CURRENT", source_date=None, catcode=None,
+                      relationship=None):
+        # accept either 'rel' or 'relationship'
+        relationship = rel or relationship
+        """Write a single binding. Rejects PII in target_ref.
+        Populates both `catcode` (legacy) and `catcodes` (array, current spec).
+        Stamps created_by from self.writer_uri."""
         if check_pii(target_ref):
             print(f"  REJECTED (PII detected): {name} {relationship} {target_ref[:40]}...")
             return None
 
         cur = self.conn.cursor()
+        catcodes = [catcode] if catcode else []
         cur.execute(
-            """INSERT INTO bindings (scope, name, relationship, target_type, target_ref, qualifier, permanence, source_date, catcode)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
+            """INSERT INTO bindings
+               (scope, name, relationship, target_type, target_ref, qualifier, permanence,
+                source_date, catcode, catcodes, created_by)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
             (scope, name, relationship, target_type, target_ref,
-             qualifier, permanence, source_date, catcode)
+             qualifier, permanence, source_date, catcode, catcodes, self.writer_uri)
         )
         binding_id = cur.fetchone()[0]
         self.conn.commit()
@@ -152,6 +177,30 @@ class AbraWriter:
             "UPDATE bindings SET name = %s WHERE scope = %s AND name = %s",
             (new_name, scope, old_name)
         )
+        count = cur.rowcount
+        self.conn.commit()
+        cur.close()
+        return count
+
+    def set_hot(self, scope, name, priority=0, days=30):
+        """Mark a name as hot in a scope. Expires after `days` days (default 30)."""
+        cur = self.conn.cursor()
+        cur.execute(
+            """INSERT INTO hot_tags (scope, name, priority, expires_at)
+               VALUES (%s, %s, %s, NOW() + make_interval(days => %s))
+               ON CONFLICT (scope, name) DO UPDATE SET
+                   priority = EXCLUDED.priority,
+                   expires_at = EXCLUDED.expires_at,
+                   added_at = NOW()""",
+            (scope, name, priority, days)
+        )
+        self.conn.commit()
+        cur.close()
+
+    def unset_hot(self, scope, name):
+        """Remove a name from the hot list."""
+        cur = self.conn.cursor()
+        cur.execute("DELETE FROM hot_tags WHERE scope = %s AND name = %s", (scope, name))
         count = cur.rowcount
         self.conn.commit()
         cur.close()

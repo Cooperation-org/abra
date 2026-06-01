@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>abra · bindings</title>
+  <link rel="stylesheet" href="__BASE__/style.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <script src="https://unpkg.com/htmx.org@1.9.12" integrity="sha384-ujb1lZYygJmzgSwoxRggbCHcjc0rB2XoQrxeTUQyRjrOnlCoYta87iKBWq3EsdM2" crossorigin="anonymous"></script>
+</head>
+<body class="__BODY_CLASS__">
+  <nav class="topnav">
+    <a href="__BASE__/" class="nav" aria-label="home"><i class="fa-solid fa-house"></i></a>
+    <a href="#" class="nav" onclick="if(document.body.classList.contains('editing')){document.body.classList.remove('editing');return false}history.back();return false" aria-label="back"><i class="fa-solid fa-arrow-left"></i></a>
+    <button type="button" class="nav"
+            onclick="document.body.classList.toggle('search-open');var i=document.querySelector('input[name=q]');if(i&&document.body.classList.contains('search-open'))i.focus()"
+            aria-label="find"><i class="fa-solid fa-magnifying-glass"></i></button>
+    <span class="spacer"></span>
+    <button type="button" class="nav" data-ui-pref="ui.show-codes" aria-label="show codes"><i class="fa-solid fa-hashtag"></i></button>
+    <button type="button" class="nav edit-toggle"
+            onclick="document.body.classList.toggle('editing')" aria-label="edit"><i class="fa-solid fa-pen"></i></button>
+  </nav>
+
+  <div class="page">
+    <header>
+      <h1><span class="ed" data-k="bind.h1">__T_bind.h1__</span></h1>
+      <p class="lead"><span class="ed" data-k="bind.lead">__T_bind.lead__</span></p>
+    </header>
+
+    <main>
+      <div id="flash" aria-live="polite"></div>
+
+      __CHIP__
+
+      <form class="search-row"
+            hx-get="__BASE__/bindings/list"
+            hx-trigger="keyup changed delay:200ms from:input[name=q], load"
+            hx-target="#binding-list"
+            hx-swap="innerHTML">
+        <input type="search" name="q" placeholder="__T_bind.search.placeholder__" autofocus autocomplete="off" value="__Q__">
+        <input type="hidden" name="catcode" value="__CATCODE__">
+        <input type="hidden" name="label" value="__LABEL__">
+      </form>
+
+      <div class="col-toggles">
+        <button type="button" class="ct" data-ui-pref="ui.hide-col.rel"><span class="ed" data-k="bind.col.rel">__T_bind.col.rel__</span></button>
+        <button type="button" class="ct" data-ui-pref="ui.hide-col.qual"><span class="ed" data-k="bind.col.qual">__T_bind.col.qual__</span></button>
+        <button type="button" class="ct" data-ui-pref="ui.hide-col.tgt"><span class="ed" data-k="bind.col.tgt">__T_bind.col.tgt__</span></button>
+        <button type="button" class="ct" data-ui-pref="ui.hide-col.date"><span class="ed" data-k="bind.col.date">__T_bind.col.date__</span></button>
+        <button type="button" class="ct" data-ui-pref="ui.hide-col.from"><span class="ed" data-k="bind.col.from">__T_bind.col.from__</span></button>
+      </div>
+
+      <div id="binding-list">
+        <p class="muted">Loading…</p>
+      </div>
+    </main>
+    <script>
+      // Column toggle visual state (struck-through label when hidden) —
+      // syncs to the body classes that the server applied from persisted
+      // UI prefs. The actual toggle behaviour (click → POST → body class)
+      // lives in edit.js so it's the same code for every data-ui-pref
+      // button on the page.
+      document.querySelectorAll('.col-toggles .ct').forEach(function (b) {
+        var key = b.dataset.uiPref;
+        var cls = (window.UI_PREFS || {})[key];
+        if (cls && document.body.classList.contains(cls)) b.classList.add('hidden');
+      });
+    </script>
+
+    <footer>
+      <p class="muted">
+        <a href="https://github.com/Cooperation-org/abra">abra</a> ·
+        view subsystem
+      </p>
+    </footer>
+  </div>
+  <script src="__BASE__/edit.js"></script>
+</body>
+</html>

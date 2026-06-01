@@ -154,6 +154,35 @@ An agent needs to know the user's full data landscape — not just where data co
 
 This is meta, not bindings. Per-user, private, works across implementations. A lightweight manifest (e.g. `~/.abra/sources.yaml`) that any agent reads on startup. Describes: who you are, what your scope is, what data sources and sinks you have, what state they're in, how to reach them.
 
+## Components
+
+Two senses, both first-class.
+
+**View module** — server-side homepage surface (e.g. `view/components/<name>/component.py` with `meta.yaml`). Has install/config/move/uninstall lifecycle, per-user config, ordering, and a render function returning HTML. Discovered by the view server scanning its own filesystem. Per-instance state (config, position) belongs in abra (`view:component.<id>` bindings; cutover to `user_config` planned).
+
+**Web component** — browser-side HTML custom element (e.g. `<amebo-goal>`). Ships as JS from a source. Two flavors:
+
+- *Thin-wiring* — reads `data-up` / `data-ref` / `data-scheme` / `data-path` / `data-org` from the host and fetches via the host proxy. Used when the host needs to hold credentials.
+- *Self-contained* — knows its own host and auth. Host just embeds the tag.
+
+Abra catalogs web components — both flavors — in a per-instance registry at `~/.abra/components.yaml`, parallel to `sources.yaml`. Each entry: name, description, icon, script URL, provider, schemes handled (empty for self-contained), required attrs, integrity hash (SRI), added_by, added_at. Adding a component is deliberate — paste the URL, paste the hash. That friction is the trust story.
+
+The two senses compose. A view module may render web components inside its HTML; a web component may be embedded directly without a view module. Neither requires the other.
+
+No orchestrator. Abra owns the registry. Providers (amebo, CRM, Taiga, future) ship their own web components. The view renders.
+
+**Cross-origin direct, shared OAuth (Pattern B).** A web component talks to its source directly across origins, not through the view as a proxy. The host page (view) and the source (amebo, etc.) authenticate the user via shared OAuth providers (Google, Bluesky/ATProto). User signs in once, every embed on the page runs as that user without per-source popups. Per-user state for an embed (filter prefs, item ordering) lives in the source, not in the view. View modules own only view-side preferences — which embeds appear on the homepage and in what order.
+
+## Scoring and ordering
+
+Two layers, owned by different systems.
+
+**View-side composition** — order in which embeds appear on the homepage. Owned by abra. The user drags components on the canvas; abra persists the score in `user_signal` (per migration 002). Library: `impl/pgvector/signals.py` (`set_score`, `ranked`). View reads on render. No HTTP service.
+
+**Source-side ordering** — order of items inside an embed (which goals first, which emails first). Owned by the source. Per Pattern B, abra does not proxy or mirror this. The source decides.
+
+**Pluggable external scorer.** abra-side ordering should be able to delegate to an external system (e.g. LinkedTrust trust scores, a custom ranker) instead of reading the local `user_signal`. Default stays local. Hook: `scorer=` arg on `ranked()` or per-scope config, to be wired when the second scorer is real. Not built yet; planned.
+
 ## Hot tags
 
 Runtime/agent concern, not part of the data format. The ~N names/catcodes the user cares about right now. Inferred from recent activity (what the user is working on, asking about) plus explicit pins. Kept in working memory with enough context to be useful — not everything, just enough. Maintained by whatever agent or UI is running.
