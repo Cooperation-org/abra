@@ -438,6 +438,16 @@ def apply_view_texts(html: str, overrides: dict[str, str]) -> str:
     return html.replace("__BODY_CLASS__", " ".join(classes))
 
 
+def db_delete_binding(binding_id: int) -> None:
+    """Delete one binding by id within the active scope. Scope check
+    keeps a user from deleting another scope's row by guessing id."""
+    with conn() as c, c.cursor() as cur:
+        cur.execute(
+            "DELETE FROM bindings WHERE scope = %s AND id = %s",
+            (SCOPE, binding_id),
+        )
+
+
 def db_name_detail(name: str) -> list[dict]:
     """All bindings for one name in the active scope, joined to content
     when the binding points at a content row."""
@@ -927,13 +937,18 @@ def name_detail_html(name: str, rows: list[dict]) -> str:
     """One name's detail. Each binding is its own row; bindings that point
     at a content blob accordion the blob inline beneath the row, so
     expanding a row never jumps the page. Columns (rel/qual/tgt/date/from)
-    can be hidden/shown via the toggles in the page chrome."""
+    can be hidden/shown via the toggles in the page chrome.
+
+    In edit mode (body.editing) each row gets a small × delete button.
+    The item header carries an FA pen icon as a quick edit-mode toggle
+    so the user doesn't have to scroll to the topnav."""
     if not rows:
         return ""
 
     items: list[str] = []
     content_count = 0
     for r in rows:
+        bid = r["id"]
         rel = r["relationship"]
         qual = r.get("qualifier") or ""
         date = r.get("source_date") or (r.get("created_at") or "")[:10] or ""
@@ -945,12 +960,20 @@ def name_detail_html(name: str, rows: list[dict]) -> str:
         if has_content:
             content_count += 1
 
+        del_btn = (
+            f'<button type="button" class="bind-delete"'
+            f'   hx-delete="{u(f"/bindings/{bid}")}" hx-confirm="Delete this binding?"'
+            f'   hx-target="closest .bind-row" hx-swap="outerHTML"'
+            f'   aria-label="delete binding">×</button>'
+        )
+
         cols = (
             f'<span class="col-rel">{esc(rel)}</span>'
             f'<span class="col-qual">{esc(qual) or "—"}</span>'
             f'<span class="col-tgt">{render_target(target_type, target_ref)}</span>'
             f'<span class="col-date">{esc(date)}</span>'
             f'<span class="col-from">{esc(prov)}</span>'
+            f'{del_btn}'
         )
 
         if has_content:
@@ -973,7 +996,12 @@ def name_detail_html(name: str, rows: list[dict]) -> str:
         else:
             items.append(f'<div class="bind-row">{cols}</div>')
 
-    return f'<div class="bindings">{"".join(items)}</div>'
+    edit_toggle = (
+        '<button type="button" class="item-edit-toggle"'
+        ' onclick="document.body.classList.toggle(\'editing\')"'
+        ' aria-label="edit this item"><i class="fa-solid fa-pen"></i></button>'
+    )
+    return f'<div class="item-header">{edit_toggle}</div><div class="bindings">{"".join(items)}</div>'
 
 
 # ── request handler ──────────────────────────────────────────────────────
@@ -1058,6 +1086,11 @@ class Handler(BaseHTTPRequestHandler):
         # bindings browse
         if method == "GET" and path == "/bindings/list":
             return lambda: self._bindings_list()
+        # Single-binding delete (edit-mode in item view).
+        m = re.fullmatch(r"/bindings/(\d+)/?", path)
+        if m and method == "DELETE":
+            bid = int(m.group(1))
+            return lambda: (db_delete_binding(bid) or "")
         m_name = re.fullmatch(r"/names/([^/]{1,200})/?", path)
         if m_name and method == "GET":
             from urllib.parse import unquote
