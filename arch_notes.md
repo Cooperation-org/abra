@@ -171,6 +171,18 @@ The two senses compose. A view module may render web components inside its HTML;
 
 No orchestrator. Abra owns the registry. Providers (amebo, CRM, Taiga, future) ship their own web components. The view renders.
 
+**Cross-origin direct, shared OAuth (Pattern B).** A web component talks to its source directly across origins, not through the view as a proxy. The host page (view) and the source (amebo, etc.) authenticate the user via shared OAuth providers (Google, Bluesky/ATProto). User signs in once, every embed on the page runs as that user without per-source popups. Per-user state for an embed (filter prefs, item ordering) lives in the source, not in the view. View modules own only view-side preferences — which embeds appear on the homepage and in what order.
+
+## Scoring and ordering
+
+Two layers, owned by different systems.
+
+**View-side composition** — order in which embeds appear on the homepage. Owned by abra. The user drags components on the canvas; abra persists the score in `user_signal` (per migration 002). Library: `impl/pgvector/signals.py` (`set_score`, `ranked`). View reads on render. No HTTP service.
+
+**Source-side ordering** — order of items inside an embed (which goals first, which emails first). Owned by the source. Per Pattern B, abra does not proxy or mirror this. The source decides.
+
+**Pluggable external scorer.** abra-side ordering should be able to delegate to an external system (e.g. LinkedTrust trust scores, a custom ranker) instead of reading the local `user_signal`. Default stays local. Hook: `scorer=` arg on `ranked()` or per-scope config, to be wired when the second scorer is real. Not built yet; planned.
+
 ## Hot tags
 
 Runtime/agent concern, not part of the data format. The ~N names/catcodes the user cares about right now. Inferred from recent activity (what the user is working on, asking about) plus explicit pins. Kept in working memory with enough context to be useful — not everything, just enough. Maintained by whatever agent or UI is running.

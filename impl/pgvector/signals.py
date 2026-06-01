@@ -1,11 +1,27 @@
 #!/usr/bin/env python3
 """Per-user signals — scoring and labels.
 
-Read/write helpers for the user_signal and binding_labels tables added in
-migration 002. Importable by any backend or script; usable as a small CLI
-for spot checks.
+Read/write helpers for the user_signal table (migration 002) and the
+labels table (migration 003). Importable by any backend or script;
+usable as a small CLI for spot checks.
 
-Pure data layer. No HTTP. The HTTP service is in impl/backend/scoring_server.py.
+Pure data layer. No HTTP — callers import directly.
+
+Scope: **view-side ordering** of abra-held things (names, bindings,
+content). When the user drags items on their canvas, we persist the
+score here; when the view renders a list, it reads `ranked(...)`.
+
+Out of scope: source-side ordering. Per Pattern B (scratch.md ~13:00),
+embeds talk directly to their source cross-origin. The ordering of
+items WITHIN an embed (which goals first, which emails first) is the
+source's concern, not abra's.
+
+Pluggable external scorer (planned, not built):
+  `ranked()` returns from the local user_signal table by default. We
+  may want to delegate to an external scorer URL (e.g. LinkedTrust
+  trust scores, or any third-party ranker). The hook will be a
+  `scorer=` arg or per-scope config; default unchanged. Stubbed for
+  when the second scorer is real.
 """
 from __future__ import annotations
 

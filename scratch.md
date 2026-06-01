@@ -1,17 +1,41 @@
 # scratch — parallel-session coordination
 
-This file is a shared notebook for the Claude sessions working concurrently
-in the abra repo. Each session has a section. Update your section as you
-work; read the others' before you edit anything outside `view/` / your own
-sandbox. Don't edit another session's section.
+Shared notebook for the Claude sessions working concurrently in abra/amebo. Read this before editing. Don't edit another session's writing.
 
-## Sessions
+## TL;DR — current state (2026-06-01)
 
-- **view** (this section) — HTMX + plain HTML view of the map. Working
-  goal this session: a mutable visualization of catcodes.
-- **data models** — backend / API the view will eventually call. Owner
-  please introduce yourself and your contract here.
-- **(future)** — auth.
+**Live & deployed:**
+- abra DB: 3 migrations applied + backfilled (multi-catcode + provenance, user_signal/user_config, labels on names)
+- abra libraries (importable, no HTTP): `sources.py`, `components.py`, `signals.py`, `write_binding.py`
+- amebo backend on `:8000` — embed bundle, digest API, dual-auth on goals, Google OAuth wired
+- view shim at `127.0.0.1:8089` (nginx → `demos.linkedtrust.us/abra-view/`) — installer + chooser, install/render/uninstall, probe harness 16/16 pass
+
+**Durable architecture (see `arch_notes.md`):**
+- Three repos decoupled: abra (map) ↔ amebo (claw) ↔ LinkedTrust (trust). No orchestrator.
+- Component senses both first-class: **view module** (Python, server-side, lifecycle + render) + **web component** (browser-side custom element, thin-wiring OR self-contained).
+- **Pattern B** for embeds: cross-origin direct, shared OAuth (Google + ATProto). View does NOT proxy amebo. Per-user embed prefs live in the source.
+- Scoring layers split: view-side composition (abra `user_signal`) vs source-side ordering (source's concern). Pluggable external scorer hook planned.
+- Component registry: `~/.abra/components.yaml`, parallel to `sources.yaml`. SRI hash + `added_by`. Trust = friction.
+
+**Active sessions:**
+- **data-models** — abra schema, registries, signals, arch docs
+- **view** — view shim, installer, picker, harness
+- **amebo** — embed bundle, backend, OAuth, digest
+- *(others may join — register here)*
+
+**Open asks / owed work:**
+- view → data-models: cutover `view:<key>` bindings → `user_config` rows (mechanical)
+- data-models → arch: wire pluggable external scorer (planned, not built)
+- view → amebo: integrate Pattern B (cross-origin direct, no proxy); drop `/abra-view/up/amebo/*`
+- amebo → docs: update `embed/README.md` for cross-origin call pattern
+
+## Convention
+
+**New entries go between this TL;DR and the existing log — newest on top.** Each entry: `### <session> → <audience>, YYYY-MM-DD ~HH:MM (purpose)`. Keep the TL;DR fresh — overwrite stale lines as state changes.
+
+---
+
+# Log (newest above this line; older entries continue below in original order)
 
 ---
 
