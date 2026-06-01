@@ -654,7 +654,7 @@ def component_chooser_html() -> str:
             f'<button class="chooser-card" type="button"'
             f' hx-post="{u("/components/install")}"'
             f' hx-vals=\'{{"tag":"{esc(tag)}"}}\''
-            f' hx-target="#installed-components" hx-swap="beforeend">'
+            f' hx-target="#topnav-installed" hx-swap="beforeend">'
             f'{icon_html}'
             f'<span class="chooser-text">'
             f'<span class="chooser-title">{esc(c.get("name") or tag)}</span>'
@@ -700,39 +700,123 @@ def component_element_html(comp: dict) -> str:
 
     return (
         f'<section class="component" id="component-{esc(inst)}" data-component-id="{esc(inst)}">'
-        f'<button type="button" class="component-remove"'
-        f'   hx-delete="{u(f"/components/{esc(inst)}")}" hx-confirm="Remove this component?"'
-        f'   hx-target="#component-{esc(inst)}" hx-swap="outerHTML"'
-        f'   aria-label="remove">×</button>'
         f'<{esc(tag)}{"".join(attrs)}></{esc(tag)}>'
         f'</section>'
     )
 
 
-def installed_components_html() -> str:
-    """Installed components for the scope + any provider <script> tags
-    they need. Scripts are deduped by URL and run through _proxify_script
-    so trusted-provider bundles load through the view's proxy; SRI from
-    the catalog is preserved (or skipped if it's still REPLACE_ME)."""
+def _topnav_anchor_html(comp: dict, catalog: dict) -> str:
+    """One topnav <a> for one installed component. Icon from catalog,
+    falls back to a generic cube. Click navigates to /c/<inst>/."""
+    tag = comp["scheme"]
+    spec = catalog.get(tag) or {}
+    name = spec.get("name") or tag
+    icon = spec.get("icon") or ""
+    inst = comp["id"]
+    if icon:
+        icon_src = _proxify_script(icon) if "://amebo" in icon else icon
+        # If the catalog icon URL 404s, swap to a font-awesome fallback
+        # so the nav entry stays visible. amebo doesn't ship icons yet;
+        # this keeps the UI honest until it does.
+        icon_html = (
+            f'<img class="nav-icon" src="{esc(icon_src)}" alt="{esc(name)}" '
+            f'loading="lazy" onerror="this.outerHTML=&quot;<i class=\\&quot;fa-solid fa-cube\\&quot;></i>&quot;">'
+        )
+    else:
+        icon_html = '<i class="fa-solid fa-cube"></i>'
+    return (
+        f'<a href="{u(f"/c/{esc(inst)}/")}" class="nav" '
+        f'title="{esc(name)}" aria-label="{esc(name)}" '
+        f'data-component-id="{esc(inst)}">{icon_html}</a>'
+    )
+
+
+def topnav_installed_html() -> str:
+    """All installed components rendered as topnav anchors. Loaded into
+    the topnav slot via htmx GET on page load."""
     comps = db_list_components()
     if not comps:
         return ""
     catalog = _load_components()
-    body = "".join(component_element_html(c) for c in comps)
-    seen: dict[str, str] = {}
-    for c in comps:
-        spec = catalog.get(c["scheme"]) or {}
-        url = spec.get("script")
-        if url and url not in seen:
-            seen[url] = spec.get("integrity") or ""
-    scripts = []
-    for url, integrity in seen.items():
-        proxied = _proxify_script(url)
+    return "".join(_topnav_anchor_html(c, catalog) for c in comps)
+
+
+def component_page_html(inst: str) -> str:
+    """Full HTML page rendering one installed component full-bleed.
+    Reuses the homepage topnav (so installs stay visible) and loads the
+    provider bundle for this component. Returns "" if instance unknown."""
+    comps = db_list_components()
+    comp = next((c for c in comps if c["id"] == inst), None)
+    if not comp:
+        return ""
+    catalog = _load_components()
+    tag = comp["scheme"]
+    spec = catalog.get(tag) or {}
+    name = spec.get("name") or tag
+    elem = component_element_html(comp)
+    script_url = spec.get("script")
+    script_tag = ""
+    if script_url:
+        proxied = _proxify_script(script_url)
+        integrity = spec.get("integrity") or ""
         attrs = f' src="{esc(proxied)}"'
         if integrity and not integrity.endswith("REPLACE_ME"):
             attrs += f' integrity="{esc(integrity)}" crossorigin="anonymous"'
-        scripts.append(f"<script{attrs}></script>")
-    return body + "".join(scripts)
+        script_tag = f"<script{attrs}></script>"
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>abra · {esc(name)}</title>
+  <link rel="stylesheet" href="{BASE}/style.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <script src="https://unpkg.com/htmx.org@1.9.12" integrity="sha384-ujb1lZYygJmzgSwoxRggbCHcjc0rB2XoQrxeTUQyRjrOnlCoYta87iKBWq3EsdM2" crossorigin="anonymous"></script>
+</head>
+<body>
+  <nav class="topnav">
+    <a href="{BASE}/" class="nav" aria-label="home"><i class="fa-solid fa-house"></i></a>
+    <a href="#" class="nav" onclick="history.back();return false" aria-label="back"><i class="fa-solid fa-arrow-left"></i></a>
+    <button type="button" class="nav add-component"
+            hx-get="{BASE}/components/chooser"
+            hx-target="#modal-slot"
+            hx-swap="innerHTML"
+            aria-label="add a component"><i class="fa-solid fa-puzzle-piece"></i></button>
+    <span id="topnav-installed"
+          hx-get="{BASE}/components/menu"
+          hx-trigger="load"
+          hx-swap="innerHTML"></span>
+    <span class="spacer"></span>
+  </nav>
+
+  <div class="page">
+    <header>
+      <h1>{esc(name)}</h1>
+    </header>
+    <main>
+      <div id="flash" aria-live="polite"></div>
+      {elem}
+      <div class="danger-zone">
+        <p class="muted danger-warn">Deleting removes this component from your map. The data in {esc(tag.split('-')[0] if '-' in tag else 'the provider')} is not touched.</p>
+        <button type="button" class="btn-danger"
+                hx-delete="{BASE}/components/{esc(inst)}"
+                hx-confirm="Delete this component? This removes it from your map."
+                hx-on::after-request="if(event.detail.successful) window.location.href='{BASE}/'">
+          <i class="fa-solid fa-trash"></i> Delete this component
+        </button>
+      </div>
+    </main>
+    <footer>
+      <p class="muted">
+        <a href="https://github.com/Cooperation-org/abra">abra</a> ·
+        view subsystem
+      </p>
+    </footer>
+  </div>
+  <div id="modal-slot"></div>
+  {script_tag}
+</body>
+</html>"""
 
 
 # Linkify http(s) URLs inside a text block. Used for content blob bodies
@@ -1003,17 +1087,22 @@ class Handler(BaseHTTPRequestHandler):
             scheme, sub = m.group(1), m.group(2) or "/"
             return lambda: self._proxy(scheme, sub, method)
 
-        # Components: chooser modal, install POST, list, uninstall DELETE.
+        # Components: chooser modal, install POST, topnav menu, uninstall DELETE.
         if method == "GET" and path == "/components/chooser":
             return component_chooser_html
-        if method == "GET" and path == "/components/":
-            return installed_components_html
+        if method == "GET" and path == "/components/menu":
+            return topnav_installed_html
         if method == "POST" and path == "/components/install":
             return self._install_component
         m = re.fullmatch(r"/components/([a-f0-9]{4,32})/?", path)
         if m and method == "DELETE":
             inst = m.group(1)
             return lambda: (db_uninstall_component(inst) or "")
+        # Per-instance full-bleed page: /c/<inst>/
+        m = re.fullmatch(r"/c/([a-f0-9]{4,32})/?", path)
+        if m and method == "GET":
+            inst = m.group(1)
+            return lambda: component_page_html(inst)
 
         # view-text override: writes user's edit to abra as IS-binding
         m = re.fullmatch(r"/view-text/([a-z][a-z0-9._-]*)/?", path)
@@ -1115,20 +1204,14 @@ class Handler(BaseHTTPRequestHandler):
         # column — we pass the tag through it until that column is
         # renamed. Renderer always cross-refs the catalog by this value.
         inst = db_install_component(tag, path)
-        # HTMX appends one element. The provider <script> tag is loaded
-        # from index.html's `#installed-components` GET-on-load; on
-        # subsequent installs the script is already cached.
-        elem = component_element_html({"id": inst, "scheme": tag, "path": path, "position": 0})
-        spec = catalog.get(tag) or {}
-        script_url = spec.get("script")
-        if script_url:
-            proxied = _proxify_script(script_url)
-            integrity = spec.get("integrity") or ""
-            attrs = f' src="{esc(proxied)}"'
-            if integrity and not integrity.endswith("REPLACE_ME"):
-                attrs += f' integrity="{esc(integrity)}" crossorigin="anonymous"'
-            elem += f"<script{attrs}></script>"
-        return elem
+        # New shape: install creates a topnav entry. The component itself
+        # renders on its own /c/<inst>/ page when the entry is clicked.
+        # No inline render on the homepage; no bundle loaded here.
+        comp = {"id": inst, "scheme": tag, "path": path, "position": 0}
+        anchor = _topnav_anchor_html(comp, catalog)
+        # Out-of-band: clear the chooser modal so the new nav entry is visible.
+        anchor += '<div id="modal-slot" hx-swap-oob="innerHTML"></div>'
+        return anchor
 
     def _bindings_list(self) -> str:
         from urllib.parse import parse_qs as _pq

@@ -12,11 +12,20 @@
   <nav class="topnav">
     <a href="__BASE__/" class="nav active" aria-label="home"><i class="fa-solid fa-house"></i></a>
     <a href="#" class="nav" onclick="if(document.body.classList.contains('editing')){document.body.classList.remove('editing');return false}history.back();return false" aria-label="back"><i class="fa-solid fa-arrow-left"></i></a>
+    <button type="button" class="nav"
+            hx-get="__BASE__/catcodes/new"
+            hx-target="#new-slot"
+            hx-swap="innerHTML"
+            aria-label="add top-level"><i class="fa-solid fa-plus"></i></button>
     <button type="button" class="nav add-component"
             hx-get="__BASE__/components/chooser"
             hx-target="#modal-slot"
             hx-swap="innerHTML"
             aria-label="add a component"><i class="fa-solid fa-puzzle-piece"></i></button>
+    <span id="topnav-installed"
+          hx-get="__BASE__/components/menu"
+          hx-trigger="load"
+          hx-swap="innerHTML"></span>
     <span class="spacer"></span>
     <button type="button" class="nav" data-ui-pref="ui.show-codes" aria-label="show codes"><i class="fa-solid fa-hashtag"></i></button>
     <button type="button" class="nav edit-toggle"
@@ -32,13 +41,6 @@
     <main>
       <div id="flash" aria-live="polite"></div>
 
-      <div class="top-actions">
-        <button type="button" class="list-add"
-                hx-get="__BASE__/catcodes/new"
-                hx-target="#new-slot"
-                hx-swap="innerHTML"
-                aria-label="add top-level"><i class="fa-solid fa-plus"></i></button>
-      </div>
       <div id="new-slot"></div>
 
       <div id="tree"
@@ -47,14 +49,6 @@
            hx-swap="innerHTML">
         <p class="muted">Loading…</p>
       </div>
-
-      <!-- Installed components — populated from view:component.<id>
-           bindings. Each entry is one section with its own remove
-           button + the right custom-element tag from sources.yaml. -->
-      <div id="installed-components"
-           hx-get="__BASE__/components/"
-           hx-trigger="load"
-           hx-swap="innerHTML"></div>
 
       <!-- Modal slot for the component chooser (puzzle piece in topnav). -->
       <div id="modal-slot"></div>
