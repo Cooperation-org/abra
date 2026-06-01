@@ -45,6 +45,21 @@
            hx-swap="innerHTML">
         <p class="muted">Loading…</p>
       </div>
+
+      <!-- v0 single-component smoke: a hardcoded amebo digest under the
+           tree, to verify the proxy + bundle + custom-element path end
+           to end. Real component installer lands next (writes
+           view:component.<id> bindings; this disappears). -->
+      <section class="component-slot">
+        <amebo-digest
+          data-up="__BASE__/up/amebo"
+          data-ref="amebo:digest"
+          data-scheme="amebo:digest"
+          data-path=""
+          data-org=""
+        ></amebo-digest>
+      </section>
+      <script src="__BASE__/up/amebo/embed/amebo.js"></script>
     </main>
 
     <footer>

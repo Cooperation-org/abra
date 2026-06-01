@@ -23,6 +23,13 @@ import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
+import base64
+import hashlib
+import hmac
+import json as _json
+import time
+import urllib.error
+import urllib.request
 
 import psycopg2
 
@@ -147,6 +154,55 @@ PORTAL_LABELS = {
     for s in os.getenv("ABRA_VIEW_PORTAL_LABELS", "").split(",")
     if s.strip()
 }
+
+# ── upstream proxy config (per-scheme, env until sources.yaml lands) ────
+# When the URI-scheme registry from data-models is populated, the proxy
+# reads upstream + auth from there. Until then, single env var per scheme.
+UPSTREAM = {
+    "amebo": os.getenv("AMEBO_UPSTREAM", "http://127.0.0.1:8000").rstrip("/"),
+}
+
+# JWT secret for minting per-user tokens to upstream services. Env-driven;
+# falls back to amebo's local .env on the same VM (dev convenience only —
+# in production this is set explicitly).
+_JWT_SECRET = os.getenv("JWT_SECRET_KEY", "")
+if not _JWT_SECRET:
+    _amebo_env = Path("/opt/shared/repos/amebo/backend/.env")
+    if _amebo_env.exists():
+        for _line in _amebo_env.read_text().splitlines():
+            if _line.startswith("JWT_SECRET_KEY=") and not _line.startswith("#"):
+                _JWT_SECRET = _line.split("=", 1)[1].strip()
+                break
+
+# Dev-only identity. Until the auth session lands, every proxied request
+# carries this identity. Real auth replaces this with the actual logged-in
+# user; nothing in the proxy logic changes.
+DEV_USER = {
+    "user_id": int(os.getenv("ABRA_VIEW_DEV_USER_ID", "1")),
+    "org_id":  int(os.getenv("ABRA_VIEW_DEV_ORG_ID",  "1")),
+    "email":   os.getenv("ABRA_VIEW_DEV_EMAIL",       "golda@example.com"),
+    "role":    os.getenv("ABRA_VIEW_DEV_ROLE",        "admin"),
+}
+
+
+def _b64url(b: bytes) -> str:
+    return base64.urlsafe_b64encode(b).rstrip(b"=").decode("ascii")
+
+
+def mint_jwt(user: dict, ttl_seconds: int = 900) -> str:
+    """Minimal HS256 JWT minter. No PyJWT/jose dep so the dev shim stays
+    stdlib-only. When the auth session lands, replace this with whatever
+    standard library they pick."""
+    if not _JWT_SECRET:
+        raise FormError("no JWT_SECRET_KEY configured — set in env or amebo .env")
+    header = {"alg": "HS256", "typ": "JWT"}
+    now = int(time.time())
+    payload = {**user, "type": "access", "iat": now, "exp": now + ttl_seconds}
+    h = _b64url(_json.dumps(header,  separators=(",", ":")).encode("utf-8"))
+    p = _b64url(_json.dumps(payload, separators=(",", ":")).encode("utf-8"))
+    signing_input = f"{h}.{p}".encode("ascii")
+    sig = hmac.new(_JWT_SECRET.encode("utf-8"), signing_input, hashlib.sha256).digest()
+    return f"{h}.{p}.{_b64url(sig)}"
 
 
 def db_top_names(q: str | None, catcode: str | None, label: str | None = None,
@@ -636,8 +692,10 @@ class Handler(BaseHTTPRequestHandler):
             handler = self._route(method, path)
             if handler is None:
                 return self._send(404, "text/plain", b"not found")
-            body = handler() or ""
-            self._send(200, "text/html; charset=utf-8", body.encode("utf-8"))
+            result = handler()
+            if result is None:
+                return  # handler already sent its own response (proxy)
+            self._send(200, "text/html; charset=utf-8", result.encode("utf-8"))
         except FormError as e:
             # Validation problem: render into #flash without disturbing the
             # target the request was aimed at.
@@ -727,6 +785,15 @@ class Handler(BaseHTTPRequestHandler):
         if method == "POST" and path == "/catcodes/":
             return self._post_create
 
+        # Upstream proxy: /up/<scheme>/<anything> → forward to the
+        # upstream registered for <scheme>, with a per-user JWT minted
+        # on every request. Scheme-agnostic: every consumer (amebo,
+        # future taiga, future odoo) goes through the same path.
+        m = re.fullmatch(r"/up/([a-z][a-z0-9_-]*)(/.*)?", path)
+        if m:
+            scheme, sub = m.group(1), m.group(2) or "/"
+            return lambda: self._proxy(scheme, sub, method)
+
         # view-text override: writes user's edit to abra as IS-binding
         m = re.fullmatch(r"/view-text/([a-z][a-z0-9._-]*)/?", path)
         if m and method == "POST":
@@ -767,6 +834,50 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     # handlers
+    def _proxy(self, scheme: str, subpath: str, method: str) -> None:
+        """Forward an upstream call. Mints a per-user JWT and writes the
+        response directly to self.wfile (so we don't load the whole body
+        into memory — bundles can be hundreds of KB)."""
+        upstream_base = UPSTREAM.get(scheme)
+        if not upstream_base:
+            return self._send(404, "text/plain",
+                              f"no upstream registered for scheme '{scheme}'".encode())
+        # Build upstream URL — preserve method, body, query string.
+        qs = urlsplit(self.path).query
+        url = upstream_base + subpath + (("?" + qs) if qs else "")
+        # Read request body (POST / PATCH / PUT). DELETE/GET typically no body.
+        length = int(self.headers.get("Content-Length", "0") or "0")
+        body = self.rfile.read(length) if length else None
+
+        headers = {
+            "Authorization": f"Bearer {mint_jwt(DEV_USER)}",
+        }
+        # Forward content-type for bodies — let upstream see JSON as JSON.
+        ct = self.headers.get("Content-Type")
+        if ct:
+            headers["Content-Type"] = ct
+        # Forward accept so the static bundle still serves application/javascript.
+        ah = self.headers.get("Accept")
+        if ah:
+            headers["Accept"] = ah
+
+        req = urllib.request.Request(url, data=body, headers=headers, method=method)
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                upstream_body = resp.read()
+                ctype = resp.headers.get("Content-Type", "application/octet-stream")
+                self._send(resp.status, ctype, upstream_body)
+        except urllib.error.HTTPError as e:
+            # Pass upstream errors through unchanged so the browser sees
+            # the real status + body for debugging.
+            self._send(e.code,
+                       e.headers.get("Content-Type", "text/plain") if e.headers else "text/plain",
+                       e.read())
+        # The handler returns None; the route lambda's ""-empty return
+        # would have done a normal _send, but we've already sent here.
+        # Mark already-sent by returning a sentinel.
+        return None  # noqa
+
     def _bindings_list(self) -> str:
         from urllib.parse import parse_qs as _pq
         qs = urlsplit(self.path).query
