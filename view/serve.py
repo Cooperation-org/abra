@@ -802,7 +802,7 @@ def component_page_html(inst: str) -> str:
   <nav class="topnav">
     <a href="{BASE}/" class="nav" aria-label="home"><i class="fa-solid fa-house"></i></a>
     <a href="#" class="nav" onclick="history.back();return false" aria-label="back"><i class="fa-solid fa-arrow-left"></i></a>
-    <button type="button" class="nav add-component"
+    <button type="button" class="nav add-component write-only"
             hx-get="{BASE}/components/chooser"
             hx-target="#modal-slot"
             hx-swap="innerHTML"
@@ -821,7 +821,7 @@ def component_page_html(inst: str) -> str:
     <main>
       <div id="flash" aria-live="polite"></div>
       {elem}
-      <div class="danger-zone">
+      <div class="danger-zone write-only">
         <p class="muted danger-warn">Deleting removes this component from your map. The data in {esc(tag.split('-')[0] if '-' in tag else 'the provider')} is not touched.</p>
         <button type="button" class="btn-danger"
                 hx-delete="{BASE}/components/{esc(inst)}"

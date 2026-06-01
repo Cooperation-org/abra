@@ -623,6 +623,12 @@ footer {
 .item-edit-toggle:hover { color: var(--ink); }
 body.editing .item-edit-toggle { color: var(--brand); }
 
+/* Write actions — buttons that change or delete state — appear only in
+   edit mode. Apply this class to any control whose effect is a write.
+   Read/navigation controls (home, back, show-codes, edit toggles)
+   stay visible always. */
+body:not(.editing) .write-only { display: none !important; }
+
 /* Per-binding delete (visible only in edit mode). */
 .bind-delete {
   background: transparent;

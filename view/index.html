@@ -12,12 +12,12 @@
   <nav class="topnav">
     <a href="__BASE__/" class="nav active" aria-label="home"><i class="fa-solid fa-house"></i></a>
     <a href="#" class="nav" onclick="if(document.body.classList.contains('editing')){document.body.classList.remove('editing');return false}history.back();return false" aria-label="back"><i class="fa-solid fa-arrow-left"></i></a>
-    <button type="button" class="nav"
+    <button type="button" class="nav write-only"
             hx-get="__BASE__/catcodes/new"
             hx-target="#new-slot"
             hx-swap="innerHTML"
             aria-label="add top-level"><i class="fa-solid fa-plus"></i></button>
-    <button type="button" class="nav add-component"
+    <button type="button" class="nav add-component write-only"
             hx-get="__BASE__/components/chooser"
             hx-target="#modal-slot"
             hx-swap="innerHTML"
