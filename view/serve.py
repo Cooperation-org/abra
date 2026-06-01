@@ -145,6 +145,14 @@ def db_delete(code: str) -> None:
 # ── Bindings browse — read-only ──────────────────────────────────────────
 # Default scope is configurable; future change is a scope picker in the UI.
 SCOPE = os.getenv("ABRA_VIEW_SCOPE", "golda")
+
+# The catcode under which the home tree renders by default. Today's
+# convention: `a001` ("version 0") holds the user's top-level subtrees
+# (golda, gitonga, linkedtrust, ...). Reserved roots (`01` Dewey, `02`
+# Wikidata, `a0` user-defined root) are still queryable, just not the
+# default home. When auth + per-user config land, this moves into
+# `user_config` keyed by the user URI.
+HOME_ROOT = os.getenv("ABRA_VIEW_HOME_ROOT", "a001")
 # Category-label suffixes that act as label-portals (clicking links to
 # ?label=<word> in the people view instead of the catcode subtree). Set
 # this via env until per-user config lands; empty default means no
@@ -535,7 +543,10 @@ def tree_html() -> str:
             '<p class="muted">No catcodes yet. '
             'Press <em>+ new top-level</em> to add one (e.g. <code>a0</code>).</p>'
         )
-    return f'<ul class="tree">{render(None)}</ul>'
+    # Default view: render children of HOME_ROOT, not the universe.
+    # Reserved roots (Dewey, Wikidata, true top-level) are reachable
+    # by direct URL or future "show all top-level" toggle.
+    return f'<ul class="tree">{render(HOME_ROOT)}</ul>'
 
 
 def edit_form_html(code: str, label: str) -> str:
@@ -553,15 +564,19 @@ def edit_form_html(code: str, label: str) -> str:
 
 
 def add_top_form_html() -> str:
+    """The topnav `+` adds a new category as a sibling of the
+    existing home entries (children of HOME_ROOT), not a true
+    top-level catcode. Reserved roots are managed elsewhere."""
     return (
         '<form class="add-form" id="new-form"'
         f'      hx-post="{u("/catcodes/")}"'
-        '      hx-target="#tree" hx-swap="innerHTML">'
-        '<label for="new-catcode">catcode</label>'
-        '<input type="text" id="new-catcode" name="catcode" placeholder="e.g. a0" required pattern="[a-z0-9]{2,64}" autofocus>'
+        '      hx-target="ul.tree" hx-swap="beforeend">'
+        f'<span class="prefix">{esc(HOME_ROOT)}</span>'
+        '<label for="new-suffix">suffix</label>'
+        '<input type="text" id="new-suffix" name="suffix" placeholder="e.g. 04" required pattern="[a-z0-9]+" autofocus>'
         '<label for="new-label">label</label>'
         '<input type="text" id="new-label" name="label" required style="flex:1">'
-        '<input type="hidden" name="parent_catcode" value="">'
+        f'<input type="hidden" name="parent_catcode" value="{esc(HOME_ROOT)}">'
         '<button type="submit" class="primary">add</button>'
         f'<button type="button" hx-get="{u("/catcodes/new/cancel")}" hx-target="#new-slot" hx-swap="innerHTML">cancel</button>'
         "</form>"
