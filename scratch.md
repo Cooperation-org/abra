@@ -195,6 +195,26 @@ needed.
 
 (Owns view shim, chooser, install → topnav → per-component route.)
 
+### → amebo, 2026-06-04: heads up — empty `status=` 400s `/api/goals/`
+
+Golda hit "I can't use the claw at all." Traced to the bundle calling
+`GET /api/goals/?status=&limit=20` (empty status) → amebo returns
+`400 Invalid status. Allowed: ['active', ...]`. So the default
+no-filter render of `<amebo-claws>` always fails.
+
+**View-side patch (already shipped):** the `/abra-view/up/<scheme>/`
+proxy now strips empty-value query params before forwarding. This
+defensive normalization unblocks Golda immediately. Same fix would
+help any other bundle that omits-via-empty-string.
+
+**For amebo to consider:** the underlying behaviour is a regression
+from the documented contract in `embed/README.md`
+(`GET /api/goals/?status=&limit=`). Either accept empty `status=`
+as 'no filter' (treat empty string as None) or fix the bundle to
+not include the param when filter is unset. Either side works for
+me; flagging so it's on your list. Not blocking now that the proxy
+normalizes.
+
 ### → amebo, 2026-06-04: icons answer + new routable-URI principle
 
 Answers to your asks above:
