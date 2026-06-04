@@ -460,23 +460,40 @@ def apply_view_texts(html: str, overrides: dict[str, str]) -> str:
 
 def db_recent_content(limit: int = 50, q: str | None = None,
                       catcode: str | None = None) -> list[dict]:
-    """Most-recent content blobs across the active scope, joined to a
-    short list of the names bound to each blob. Used by the Recent view.
-    A blob with no bindings is excluded — recency is meaningful only when
-    it lives somewhere in the user's map."""
-    where = ""
+    """Most-recent content blobs in the active scope. Two paths:
+      - Unfiltered: blobs reachable via a binding (so the unfiltered
+        feed reflects what the user has actually named/related, not the
+        full document pile).
+      - Catcode-filtered: blobs whose catcode array sits under the
+        subtree, regardless of whether anything binds them — the
+        catcode itself is the user's act of placement.
+    Each row carries the names (if any) bound to it for display."""
     args: list = [SCOPE]
+    where = ""
     if q:
         where += " AND c.content ILIKE %s"
         args.append(f"%{q}%")
     if catcode:
-        where += """
-            AND EXISTS (
+        # Catcode filter: subtree match on either column variant.
+        reach_clause = """
+            EXISTS (
                 SELECT 1 FROM unnest(COALESCE(c.catcodes, ARRAY[c.catcode])) cc
                 WHERE cc LIKE %s
             )
         """
         args.append(catcode + "%")
+    else:
+        # No filter: require an inbound binding so we don't flood the
+        # feed with raw imports.
+        reach_clause = """
+            EXISTS (
+                SELECT 1 FROM bindings b
+                WHERE b.scope = %s
+                  AND b.target_type = 'content'
+                  AND b.target_ref = c.id::text
+            )
+        """
+        args.insert(1, SCOPE)
     sql = f"""
         SELECT c.id, c.source_file, c.note_date::text, c.content,
                c.created_at::text,
@@ -486,17 +503,12 @@ def db_recent_content(limit: int = 50, q: str | None = None,
                    AND b.target_type = 'content'
                    AND b.target_ref = c.id::text) AS names
           FROM content c
-         WHERE EXISTS (
-            SELECT 1 FROM bindings b
-             WHERE b.scope = %s
-               AND b.target_type = 'content'
-               AND b.target_ref = c.id::text
-         ) {where}
+         WHERE {reach_clause} {where}
          ORDER BY COALESCE(c.note_date, c.created_at::date) DESC,
                   c.id DESC
          LIMIT {int(limit)}
     """
-    full_args = [SCOPE, SCOPE, *args[1:]]
+    full_args = [SCOPE, *args[1:]]
     with conn() as c, c.cursor() as cur:
         cur.execute(sql, full_args)
         cols = [d[0] for d in cur.description]
@@ -1235,8 +1247,15 @@ class Handler(BaseHTTPRequestHandler):
         if method == "GET" and path == "/edit.js":
             return lambda: self._static("edit.js", "application/javascript")
         if method == "GET" and path in ("/recent", "/recent/"):
+            from urllib.parse import parse_qs as _pq
+            qs = urlsplit(self.path).query
+            params = _pq(qs)
+            catcode = (params.get("catcode", [""])[0] or "").strip()
             def _render_recent():
-                items = db_recent_content(limit=50)
+                items = db_recent_content(
+                    limit=50,
+                    catcode=catcode or None,
+                )
                 feed = recent_feed_html(items)
                 return apply_view_texts(
                     (HERE / "recent.html").read_text()
