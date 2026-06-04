@@ -400,6 +400,8 @@ VIEW_DEFAULTS: dict[str, str] = {
     "bind.col.tgt":            "",
     "bind.col.date":           "",
     "bind.col.from":           "",
+    "recent.h1":               "",
+    "recent.lead":             "",
 }
 
 
@@ -454,6 +456,51 @@ def apply_view_texts(html: str, overrides: dict[str, str]) -> str:
     html = re.sub(r"__T_([a-z][a-z0-9._]*)__", replace, html)
     classes = [cls for key, cls in UI_PREFS.items() if overrides.get(key) == "1"]
     return html.replace("__BODY_CLASS__", " ".join(classes))
+
+
+def db_recent_content(limit: int = 50, q: str | None = None,
+                      catcode: str | None = None) -> list[dict]:
+    """Most-recent content blobs across the active scope, joined to a
+    short list of the names bound to each blob. Used by the Recent view.
+    A blob with no bindings is excluded — recency is meaningful only when
+    it lives somewhere in the user's map."""
+    where = ""
+    args: list = [SCOPE]
+    if q:
+        where += " AND c.content ILIKE %s"
+        args.append(f"%{q}%")
+    if catcode:
+        where += """
+            AND EXISTS (
+                SELECT 1 FROM unnest(COALESCE(c.catcodes, ARRAY[c.catcode])) cc
+                WHERE cc LIKE %s
+            )
+        """
+        args.append(catcode + "%")
+    sql = f"""
+        SELECT c.id, c.source_file, c.note_date::text, c.content,
+               c.created_at::text,
+               (SELECT array_agg(DISTINCT b.name)
+                  FROM bindings b
+                 WHERE b.scope = %s
+                   AND b.target_type = 'content'
+                   AND b.target_ref = c.id::text) AS names
+          FROM content c
+         WHERE EXISTS (
+            SELECT 1 FROM bindings b
+             WHERE b.scope = %s
+               AND b.target_type = 'content'
+               AND b.target_ref = c.id::text
+         ) {where}
+         ORDER BY COALESCE(c.note_date, c.created_at::date) DESC,
+                  c.id DESC
+         LIMIT {int(limit)}
+    """
+    full_args = [SCOPE, SCOPE, *args[1:]]
+    with conn() as c, c.cursor() as cur:
+        cur.execute(sql, full_args)
+        cols = [d[0] for d in cur.description]
+        return [dict(zip(cols, row)) for row in cur.fetchall()]
 
 
 def db_delete_binding(binding_id: int) -> None:
@@ -981,6 +1028,36 @@ def binding_list_html(rows: list[tuple], q: str | None,
     return f'<ul class="binding-list">{"".join(items)}</ul>'
 
 
+def recent_feed_html(items: list[dict]) -> str:
+    """Reverse-chrono feed of content blobs. Each entry: date, source,
+    body (linkified URLs), names this blob is bound to (as links)."""
+    if not items:
+        return '<p class="muted">No recent content.</p>'
+    parts: list[str] = []
+    for r in items:
+        cid = r["id"]
+        date = r.get("note_date") or (r.get("created_at") or "")[:10] or ""
+        src = r.get("source_file") or ""
+        body = r.get("content") or ""
+        names = r.get("names") or []
+        name_links = " · ".join(
+            f'<a class="name-text" href="{u(f"/bindings/?q={esc(n)}")}">{esc(n)}</a>'
+            for n in names
+        )
+        parts.append(
+            f'<article class="feed-item" id="feed-{cid}">'
+            f'<header class="feed-head">'
+            f'<span class="feed-date">{esc(date)}</span>'
+            f'<span class="feed-src muted">{esc(src)}</span>'
+            f'<span class="muted">#{cid}</span>'
+            f'</header>'
+            f'<div class="feed-body">{linkify(body)}</div>'
+            + (f'<footer class="feed-names">{name_links}</footer>' if names else "")
+            + f'</article>'
+        )
+    return "".join(parts)
+
+
 def name_detail_html(name: str, rows: list[dict]) -> str:
     """One name's detail. Each binding is its own row; bindings that point
     at a content blob accordion the blob inline beneath the row, so
@@ -1110,10 +1187,18 @@ class Handler(BaseHTTPRequestHandler):
             q = (params.get("q", [""])[0] or "").strip()
             catcode = (params.get("catcode", [""])[0] or "").strip()
             label = (params.get("label", [""])[0] or "").strip()
+            # Always view bindings by category. If no filter is given,
+            # default to HOME_ROOT (the user's category subtree) so the
+            # bare /bindings/ URL is never a flat splat of every name.
+            if not catcode and not label:
+                catcode = HOME_ROOT
+            # No chip at the default home root — it's the baseline view,
+            # not a filter the user picked. Chip appears only when the
+            # user has navigated into a narrower category or a label.
             chip = ""
             if label:
                 chip = self._chip_html(label, clear_qs="")
-            elif catcode:
+            elif catcode and catcode != HOME_ROOT:
                 lbl = db_catcode_label(catcode) or catcode
                 chip = self._chip_html(lbl,
                     clear_qs="?q=" + (q or "") if q else "")
@@ -1130,6 +1215,17 @@ class Handler(BaseHTTPRequestHandler):
             return lambda: self._static("style.css", "text/css")
         if method == "GET" and path == "/edit.js":
             return lambda: self._static("edit.js", "application/javascript")
+        if method == "GET" and path in ("/recent", "/recent/"):
+            def _render_recent():
+                items = db_recent_content(limit=50)
+                feed = recent_feed_html(items)
+                return apply_view_texts(
+                    (HERE / "recent.html").read_text()
+                    .replace("__BASE__", BASE)
+                    .replace("__FEED__", feed),
+                    db_get_view_texts(),
+                )
+            return _render_recent
 
         # bindings browse
         if method == "GET" and path == "/bindings/list":
