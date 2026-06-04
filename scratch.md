@@ -43,6 +43,143 @@ Concrete change in your repo:
 Nothing else to change in the bundle (no consumer code uses
 `dataset.org` today — confirmed by grep).
 
+### amebo → abra access narrowed (2026-06-03)
+
+Was: amebo backend connected to abra DB as `abra_user` (full access).
+Now: new PG role `amebo_writer` — SELECT on all 7 tables, INSERT on
+`content` + `bindings` only, no UPDATE/DELETE anywhere. Sequence usage
+granted. Smoke-tested: read OK, insert OK, update/delete denied.
+
+`/opt/shared/repos/amebo/backend/.env` `ABRA_DATABASE_URL` updated to
+the new role. **Backend needs restart to pick it up** — see Stage B
+below.
+
+Other systems (CRM, Taiga) deferred per Golda — not enforcing on those
+for now.
+
+### amebo unix isolation — Stage A done, Stage B pending (2026-06-03)
+
+Stage A (done, no service disruption):
+- Created system user `amebo` (uid 997, nologin, home `/var/lib/amebo`).
+- Created `/opt/amebo-readable/repos/` (root:amebo 750). amebo can read,
+  cannot write. Smoke-tested: read OK, write/append denied.
+- Cloned: `LinkedClaims`, `marten`, `site-linkedtrust-us` (Cooperation-org),
+  `changemaker` (Whats-Cookin). Shallow clones; 24M total.
+- `/usr/local/sbin/amebo-readable-pull` + `/etc/cron.d/amebo-readable`
+  pulls daily at 04:17 as root. amebo cannot poison the checkouts.
+
+Pending for Golda:
+- **`trust-hire`** not found in Cooperation-org or Whats-Cookin. Org?
+- **`projects`** = Cooperation-org/projects (private). Needs SSH key
+  for a service account, or rsync from `/opt/shared/projects`. Pick.
+- Bulk-clone the other ~86 public Cooperation-org repos? Some are big
+  (e.g. CAMEL framework). Confirm before pulling all.
+
+Stage B (done 2026-06-03):
+- `amebo-backend.service` now runs as `User=amebo` (uid 997). Process
+  confirmed: pid running as amebo, uvicorn :8000, scheduler started, no
+  errors in journal.
+- `/opt/shared/repos/amebo/backend/.env` chmod 640 (was world-readable
+  644) + `setfacl u:amebo:r`. Owner stays golda:devteam.
+- `slack_helper.log` is mode 666 (world-write) so amebo can append
+  without changes. Ugly but not blocking — flag for later relocation
+  to a proper log dir.
+- `/opt/shared/projects` is world-readable so amebo sees it directly
+  per Golda. Defensive ACL: `setfacl u:amebo:---` applied to
+  `/opt/shared/projects/Active/due-diligence/.env` (amos's prod secret,
+  was 664 world-readable). The underlying leak is amos's call to fix.
+- Frontend (uses kene's nvm) + Bluesky bot stay on kene.
+
+Pending from Golda:
+- `trust-hire` and `projects` are private; both now cloned via per-repo
+  deploy keys against `ssh.github.com:443` (port 22 firewalled outbound
+  on this VM). Cron pull works for both.
+
+### Goals vs claws contract (Golda 2026-06-04, voice)
+
+Two senses of "goal":
+- **Claw** (amebo): computational unit a Claude loop executes. Strict
+  schema, lives in amebo's `goals` table. User-facing surfaces should
+  say "claw" (component renames `amebo-goals` → `amebo-claws`,
+  `amebo-create-goal` → `amebo-create-claw`). Internal table name is
+  amebo's call.
+- **Goal** (abra): user's conceptual goal as prose + bindings. Aimed at
+  intelligent readers (humans + AI). No strict schema. May or may not
+  have claws attached.
+- **Connector**: abra binding `amebo:claw/<uuid>`, relationship
+  `EXECUTES_VIA` (or similar). Zero, one, or many claws per goal.
+
+Contract written into `arch_notes.md` → "Goals and claws" section, and
+External systems list updated. That is the durable source.
+
+For amebo session: the rename is yours. Internal `goals` table can
+stay. Web component surface should switch to claws.
+
+For view session: an abra-side `goals` component (renders her
+conceptual goals from bindings) is a new thing, separate from amebo's
+claws component.
+
+Sidenote — amebo's `abra_*` mirror tables in the amebo DB have 1
+binding and 10 content rows vs live abra at 15091 bindings and 5822
+content. The mirror is broken or never wired. Likely should be retired
+in favor of live reads via the new `amebo_writer` PG role. Flag for
+amebo session.
+
+### Architecture confirmed 2026-06-04: amebo standalone, abra linkage opt-in
+
+Golda confirmed the asymmetry. Amebo claws are independently complete;
+the abra goal linkage is opt-in from abra's side only. Hard constraint:
+amebo never depends on abra. Final contract in `arch_notes.md` under
+"Goals and claws" with the "Amebo is independently complete" paragraph
+and the connector spec.
+
+#### For amebo session
+- Rename user-facing surface from `amebo-goals` / `amebo-create-goal`
+  to `amebo-claws` / `amebo-create-claw`. Internal `goals` table can
+  stay; that is amebo's own model.
+- Drop or stop populating the `abra_*` mirror tables in the amebo DB.
+  They're stale (10 content / 1 binding vs live 5822 / 15091).
+- Where amebo wants to decorate a claw with "serves goal: X", query
+  live abra via `amebo_writer` at render time. Bindings: `target_type='amebo'`
+  `target_ref='amebo:claw/<claw-uuid>'`. When abra is unreachable or
+  not configured, omit the decoration. Do not block claw operations.
+- Amebo's claws table needs no abra-goal column and no FK. Standalone
+  use must remain first-class.
+
+#### Strict scope rule (Golda 2026-06-04)
+Amebo knows about its own claws. Amebo's web components manage amebo
+claws only. Amebo does NOT ship a component that renders abra goals.
+Anything that shows abra goals (or cross-links goals to claws) is
+rendered abra-side from a separate source. Keeping the layers clean.
+
+#### For amebo session (component side)
+- Rename `amebo-goals` web component to `amebo-claws`. Internal
+  `goals` table can stay; the rename is user-facing.
+- Rename `amebo-create-goal` to `amebo-create-claw`. Same flow, just
+  the user-facing name.
+- The component manages amebo claws end-to-end: list, create, edit,
+  status. No abra-goal context anywhere in the amebo-shipped UI.
+- Mirror retirement still applies: drop the `abra_*` tables in amebo's
+  DB. They were a previous-direction artifact and are stale.
+
+#### For someone (TBD) on the abra side, later
+When showing abra goals with their attached claws, the renderer reads
+abra directly for the goals (the prose, the EXECUTES_VIA bindings),
+and embeds amebo-claws (or a simpler decorator) inline for each
+attached claw. Pattern B: the renderer crosses origins; the user's
+shared OAuth identity carries through. Not for this session.
+
+#### For backend session (me)
+- Done: the 8 initial goals exist in abra under catcode
+  `a00101050601` (golda/2026/june/goals).
+- Pending: when "simple claws" land, write the EXECUTES_VIA bindings on
+  the abra side (amebo session's create-claw flow can write directly,
+  or we can wire a small abra-side endpoint).
+- Open question to Golda before I build anything component-shaped:
+  whether to ship an interim render route at /abra-view/goals/ in the
+  view shim so the goals are visible right now, or wait for the view
+  session to build the proper goals web component.
+
 ### CRM round-trip — drop from my prior gaps list (Golda 2026-06-01)
 
 I had flagged "no abra → Odoo write connector" as a gap for the UN
@@ -57,6 +194,91 @@ needed.
 ## view session
 
 (Owns view shim, chooser, install → topnav → per-component route.)
+
+### → amebo, 2026-06-04: context store contract — claw read/write context
+
+New sibling spec: [`context-store-contract.md`](context-store-contract.md).
+
+Direct from Golda (walking, 2026-06-04): a claw needs to **record
+context** (write observations) and **read fresh context** (pull
+updates the user or other agents put there). The location should
+not be baked in — abra catcodes are a convenient implementation,
+but not the only one. So the contract defines a generic
+`<store_url>/entries` POST/GET interface that abra implements over
+`(scope, catcode)` and that any other store (amebo's own DB, a
+flat-file appender, Notion adapter, …) can implement differently.
+
+**For the claw work happening on your side now:**
+
+- A claw config holds a list of **store URLs**. Each tick, the claw
+  GETs entries from each store since its last-read marker. It MAY
+  POST observations back.
+- A claw with zero stores configured runs purely on its own state.
+  Standalone use stays first-class.
+- The store URL is opaque to amebo. Just pass JSON. Contract is in
+  the doc; auth is Pattern B (cross-origin direct, shared OAuth).
+- abra-as-store URLs will look like
+  `https://<abra-host>/store/<scope>/<catcode>/`. Not built yet —
+  view session will wire this when there's a real claw to point at
+  it.
+
+This complements the **capability decoupling** flagged earlier:
+the action that creates a claw (e.g. `amebo-claws-attach`) collects
+the user's intention + an opaque context payload, then creates the
+claw with `store_urls: [<abra-store-url>]` if abra-as-store is the
+configured backing. amebo never parses the URL or knows abra is
+behind it.
+
+**Ack of recent amebo work I noticed in your repo:**
+
+- `da7e852` you dropped `data-org` from the bundle docs per the
+  earlier ping — good, no further view-side change needed.
+- `a94cf2b` you shipped `<amebo-create-goal>` + intentions API.
+  Note the rename direction (per the backend session entries
+  above): amebo's user-facing surface should land on **claws**,
+  not **goals**, since goals are abra's conceptual layer. The
+  capability + context-store design will both fit cleanly whether
+  the component is called `amebo-create-goal` or
+  `amebo-create-claw` — just flagging so the eventual rename
+  carries through.
+
+No code asks blocking you. The two design docs
+(`capability-design.md` + `context-store-contract.md`) are the
+durable surfaces — please pull through them when shaping the
+claw create endpoint.
+
+### → amebo, 2026-06-04: capability design draft + claw decoupling
+
+Working design for **capabilities** lives at
+[`capability-design.md`](capability-design.md). A capability is the
+per-user decision to enable an item-action web component on a
+particular catcode, plus a small config slice. Catalog grows a
+`kind: tab | action` field; storage is `user_config` keyed by
+`cap.<catcode>.<action-tag>`.
+
+For amebo-claws, two natural shapes (doc §5):
+
+- `amebo-claws` stays as `kind: tab` (Claws list view, today's
+  install pattern).
+- `amebo-claws-attach` (new) as `kind: action` — verb on individual
+  items under catcodes where the user enables it. Same bundle,
+  separate catalog tag.
+
+**Decoupling principle Golda flagged (2026-06-04, walking):** amebo
+must work without abra. A claw could be created via Slack, CLI, or
+a different UI; abra is just one possible creator + context source.
+So the claw-create endpoint should accept a **generic context
+payload** (a list of URIs + a short prose summary + the user's
+intention), opaque to amebo. amebo stores it. If amebo wants to
+enrich later, it may, but it must not require abra to be reachable.
+
+Captured in `capability-design.md` §5 under "Decoupling principle
+for action components." When you design the claw create-endpoint
+shape, please target that generic payload — no
+`abra:`-prefixed scheme assumptions, no synchronous abra lookups.
+
+No code yet, no ask blocking you. Calling out so the claws work
+you're doing keeps abra firmly optional.
 
 ### → amebo, 2026-06-01: contract rewritten — pickers gone
 
@@ -125,6 +347,63 @@ durable source of truth.
 ## amebo session
 
 (Owns amebo repo: embed bundle, backend APIs, OAuth.)
+
+**2026-06-04: consolidated into backend session.** Prior amebo session
+broke and stopped getting input. Golda transferred ownership to the
+backend (abra) session. Single session now drives both abra-side and
+amebo-side work for this thread.
+
+### In progress here: rename amebo-goals → amebo-claws
+
+Per the strict scope rule above, amebo's web components manage amebo
+claws only. The component currently called `amebo-goals` becomes
+`amebo-claws`. The flow currently called `amebo-create-goal` becomes
+`amebo-create-claw`. Internal `goals` table can stay (amebo's own
+model). No abra context anywhere in the amebo-shipped UI.
+
+### Done 2026-06-04
+
+- `amebo-goals` → `amebo-claws` rename across `embed/amebo.js`,
+  `embed/demo.html`, `embed/README.md`, the catalog example, and the
+  probe test. JS class `AmeboGoals` → `AmeboClaws`.
+- `amebo-create-goal` → `amebo-create-claw` rename plus full rewrite of
+  the class body. Old flow called `/api/intentions/place` +
+  `/api/intentions/commit` (wrote to abra). New flow is a plain claw
+  form posting to `POST /api/goals/` only. No abra write. Dispatches a
+  bubbling `amebo-claw-created` CustomEvent on success with the new
+  claw payload, so an abra-side host can write the `EXECUTES_VIA`
+  binding without amebo knowing the goal pet-name or catcode.
+- Bundle syntax-checked, amebo-backend restarted, served bundle
+  confirmed clean (no `intentions/place|commit` refs; 0 hits for old
+  names).
+
+### Lines up with view session's capability design
+
+Confirmed against `capability-design.md` (view session 2026-06-04):
+- `amebo-claws` is the natural `kind: tab` (existing list view).
+- `amebo-claws-attach` would be the `kind: action` verb. It can wrap
+  `amebo-create-claw`, listen for `amebo-claw-created`, and write the
+  abra-side `EXECUTES_VIA` binding using its context-tool access. Same
+  bundle, separate catalog tag.
+
+### Context-tool framing (Golda 2026-06-04)
+
+Abra is a *context tool* for amebo, not a hardcoded dependency. Amebo
+should grow a `context_tools` configuration concept. Abra is one
+implementation. Other tools (or none) can be configured. The
+`amebo_writer` PG role stays useful but should be reached via the
+context-tool abstraction, not baked in to amebo code paths.
+
+Not refactored yet (backend abstraction is its own piece of work).
+Flag for amebo-side backend work later. For now, where amebo
+reads/writes abra it uses the existing connection, but new code should
+anticipate the abstraction.
+
+### Pending icons (view session flagged)
+
+`embed/icons/claws.svg`, `embed/icons/digest.svg`,
+`embed/icons/create-claw.svg` all 404. Not blocking but topnav can't
+visually distinguish tabs.
 
 ---
 </content>
