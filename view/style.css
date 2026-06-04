@@ -30,11 +30,14 @@ body {
    edit. No words. */
 .topnav {
   display: flex;
+  flex-wrap: wrap;
   align-items: stretch;
   gap: 0;
   padding: 0;
   border-bottom: 1px solid var(--border);
 }
+/* On wrap, the spacer would force a new row by itself; suppress it. */
+.topnav .spacer { flex: 1 1 auto; min-width: 0; }
 .topnav .nav {
   padding: 6px 12px;
   color: var(--muted);
