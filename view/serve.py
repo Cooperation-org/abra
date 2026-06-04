@@ -928,7 +928,7 @@ def component_page_html(inst: str) -> str:
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>abra · {esc(name)}</title>
-  <link rel="stylesheet" href="{BASE}/style.css?v=2">
+  <link rel="stylesheet" href="{BASE}/style.css?v=3">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
   <script src="https://unpkg.com/htmx.org@1.9.12" integrity="sha384-ujb1lZYygJmzgSwoxRggbCHcjc0rB2XoQrxeTUQyRjrOnlCoYta87iKBWq3EsdM2" crossorigin="anonymous"></script>
 </head>
@@ -1428,9 +1428,12 @@ class Handler(BaseHTTPRequestHandler):
               extra_headers: dict[str, str] | None = None) -> None:
         # endswith — not exact match — so the prefix-mounted variant
         # (/abra-view/style.css) still gets the right content type.
-        if self.path.endswith("/style.css") and status == 200:
+        # Strip the query string first; otherwise ?v=2 cache-busts break
+        # this check and CSS gets served as text/html.
+        url_path = urlsplit(self.path).path
+        if url_path.endswith("/style.css") and status == 200:
             ctype = "text/css; charset=utf-8"
-        if self.path.endswith("/edit.js") and status == 200:
+        if url_path.endswith("/edit.js") and status == 200:
             ctype = "application/javascript; charset=utf-8"
         self.send_response(status)
         self.send_header("Content-Type", ctype)
