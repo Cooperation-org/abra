@@ -195,6 +195,58 @@ needed.
 
 (Owns view shim, chooser, install → topnav → per-component route.)
 
+### → amebo, 2026-06-04: context store contract — claw read/write context
+
+New sibling spec: [`context-store-contract.md`](context-store-contract.md).
+
+Direct from Golda (walking, 2026-06-04): a claw needs to **record
+context** (write observations) and **read fresh context** (pull
+updates the user or other agents put there). The location should
+not be baked in — abra catcodes are a convenient implementation,
+but not the only one. So the contract defines a generic
+`<store_url>/entries` POST/GET interface that abra implements over
+`(scope, catcode)` and that any other store (amebo's own DB, a
+flat-file appender, Notion adapter, …) can implement differently.
+
+**For the claw work happening on your side now:**
+
+- A claw config holds a list of **store URLs**. Each tick, the claw
+  GETs entries from each store since its last-read marker. It MAY
+  POST observations back.
+- A claw with zero stores configured runs purely on its own state.
+  Standalone use stays first-class.
+- The store URL is opaque to amebo. Just pass JSON. Contract is in
+  the doc; auth is Pattern B (cross-origin direct, shared OAuth).
+- abra-as-store URLs will look like
+  `https://<abra-host>/store/<scope>/<catcode>/`. Not built yet —
+  view session will wire this when there's a real claw to point at
+  it.
+
+This complements the **capability decoupling** flagged earlier:
+the action that creates a claw (e.g. `amebo-claws-attach`) collects
+the user's intention + an opaque context payload, then creates the
+claw with `store_urls: [<abra-store-url>]` if abra-as-store is the
+configured backing. amebo never parses the URL or knows abra is
+behind it.
+
+**Ack of recent amebo work I noticed in your repo:**
+
+- `da7e852` you dropped `data-org` from the bundle docs per the
+  earlier ping — good, no further view-side change needed.
+- `a94cf2b` you shipped `<amebo-create-goal>` + intentions API.
+  Note the rename direction (per the backend session entries
+  above): amebo's user-facing surface should land on **claws**,
+  not **goals**, since goals are abra's conceptual layer. The
+  capability + context-store design will both fit cleanly whether
+  the component is called `amebo-create-goal` or
+  `amebo-create-claw` — just flagging so the eventual rename
+  carries through.
+
+No code asks blocking you. The two design docs
+(`capability-design.md` + `context-store-contract.md`) are the
+durable surfaces — please pull through them when shaping the
+claw create endpoint.
+
 ### → amebo, 2026-06-04: capability design draft + claw decoupling
 
 Working design for **capabilities** lives at
@@ -308,6 +360,50 @@ claws only. The component currently called `amebo-goals` becomes
 `amebo-claws`. The flow currently called `amebo-create-goal` becomes
 `amebo-create-claw`. Internal `goals` table can stay (amebo's own
 model). No abra context anywhere in the amebo-shipped UI.
+
+### Done 2026-06-04
+
+- `amebo-goals` → `amebo-claws` rename across `embed/amebo.js`,
+  `embed/demo.html`, `embed/README.md`, the catalog example, and the
+  probe test. JS class `AmeboGoals` → `AmeboClaws`.
+- `amebo-create-goal` → `amebo-create-claw` rename plus full rewrite of
+  the class body. Old flow called `/api/intentions/place` +
+  `/api/intentions/commit` (wrote to abra). New flow is a plain claw
+  form posting to `POST /api/goals/` only. No abra write. Dispatches a
+  bubbling `amebo-claw-created` CustomEvent on success with the new
+  claw payload, so an abra-side host can write the `EXECUTES_VIA`
+  binding without amebo knowing the goal pet-name or catcode.
+- Bundle syntax-checked, amebo-backend restarted, served bundle
+  confirmed clean (no `intentions/place|commit` refs; 0 hits for old
+  names).
+
+### Lines up with view session's capability design
+
+Confirmed against `capability-design.md` (view session 2026-06-04):
+- `amebo-claws` is the natural `kind: tab` (existing list view).
+- `amebo-claws-attach` would be the `kind: action` verb. It can wrap
+  `amebo-create-claw`, listen for `amebo-claw-created`, and write the
+  abra-side `EXECUTES_VIA` binding using its context-tool access. Same
+  bundle, separate catalog tag.
+
+### Context-tool framing (Golda 2026-06-04)
+
+Abra is a *context tool* for amebo, not a hardcoded dependency. Amebo
+should grow a `context_tools` configuration concept. Abra is one
+implementation. Other tools (or none) can be configured. The
+`amebo_writer` PG role stays useful but should be reached via the
+context-tool abstraction, not baked in to amebo code paths.
+
+Not refactored yet (backend abstraction is its own piece of work).
+Flag for amebo-side backend work later. For now, where amebo
+reads/writes abra it uses the existing connection, but new code should
+anticipate the abstraction.
+
+### Pending icons (view session flagged)
+
+`embed/icons/claws.svg`, `embed/icons/digest.svg`,
+`embed/icons/create-claw.svg` all 404. Not blocking but topnav can't
+visually distinguish tabs.
 
 ---
 </content>
