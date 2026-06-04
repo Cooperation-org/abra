@@ -22,7 +22,15 @@ import re
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, quote, urlsplit
+
+
+def url_path_seg(s: str) -> str:
+    """URL-encode a string for safe use as a path segment. Escapes /,
+    %, #, ?, space, etc. Use this for names that go INTO URLs
+    (`/names/<name>/`, `?q=<name>`). esc() is HTML-escape for display,
+    not URL safety."""
+    return quote(s or "", safe="")
 import base64
 import hashlib
 import hmac
@@ -259,18 +267,29 @@ def db_list_components() -> list[dict]:
         return sorted(by_id.values(), key=lambda x: (x["position"], x["id"]))
 
 
-def db_install_component(scheme: str, path: str = "") -> str:
-    """Create a new component instance. Returns the new instance id.
+def db_install_component(scheme: str, path: str = "") -> str | None:
+    """Create a new component instance. Returns the new instance id, or
+    None if the underlying write was rejected (e.g. by PII filter).
     All writes go through AbraWriter so created_by is stamped."""
     inst = _new_component_id()
     name = f"view:component.{inst}"
     w = AbraWriter()
     try:
-        w.write_binding(SCOPE, name, rel="IS", target_type="text",
-                        target_ref=scheme, qualifier="component scheme")
+        is_id = w.write_binding(SCOPE, name, rel="IS", target_type="text",
+                                target_ref=scheme, qualifier="component scheme")
+        if is_id is None:
+            return None
         if path:
-            w.write_binding(SCOPE, name, rel="HAS", target_type="text",
-                            target_ref=path, qualifier="path")
+            has_id = w.write_binding(SCOPE, name, rel="HAS", target_type="text",
+                                     target_ref=path, qualifier="path")
+            if has_id is None:
+                # Roll back the IS write so we don't leave a half-install.
+                with conn() as c, c.cursor() as cur:
+                    cur.execute(
+                        "DELETE FROM bindings WHERE scope=%s AND name=%s",
+                        (SCOPE, name),
+                    )
+                return None
     finally:
         w.close()
     return inst
@@ -793,7 +812,8 @@ def component_chooser_html() -> str:
                 f'<button class="chooser-card" type="button"'
                 f' hx-post="{u("/components/install")}"'
                 f' hx-vals=\'{{"tag":"{esc(tag)}"}}\''
-                f' hx-target="#topnav-installed" hx-swap="beforeend">'
+                f' hx-target="#topnav-installed" hx-swap="beforeend"'
+                f' hx-disabled-elt="this">'
                 f'{icon_html}'
                 f'<span class="chooser-text">'
                 f'<span class="chooser-title">{esc(title)}</span>'
@@ -1057,7 +1077,7 @@ def binding_list_html(rows: list[tuple], q: str | None,
         return ""
     items = []
     for name, n, most_recent, teaser in rows:
-        href = u(f"/names/{esc(name)}/")
+        href = u(f"/names/{url_path_seg(name)}/")
         date_str = most_recent or "—"
         teaser_html = f'<span class="teaser">{esc(teaser)}</span>' if teaser else ""
         items.append(
@@ -1065,7 +1085,7 @@ def binding_list_html(rows: list[tuple], q: str | None,
             f'<span class="drag-handle" aria-label="drag to reorder"><i class="fa-solid fa-grip-vertical"></i></span>'
             f'<details class="name-card">'
             f'<summary>'
-            f'<a class="name-text" href="{u(f"/bindings/?q={esc(name)}")}">{esc(name)}</a>'
+            f'<a class="name-text" href="{u(f"/bindings/?q={url_path_seg(name)}")}">{esc(name)}</a>'
             f'{teaser_html}'
             f'<span class="meta">{n}× · {esc(date_str)}</span>'
             f'</summary>'
@@ -1109,7 +1129,7 @@ def recent_feed_html(items: list[dict]) -> str:
         names = r.get("names") or []
         excerpt = _one_line_excerpt(body)
         name_links = " · ".join(
-            f'<a class="name-text" href="{u(f"/bindings/?q={esc(n)}")}">{esc(n)}</a>'
+            f'<a class="name-text" href="{u(f"/bindings/?q={url_path_seg(n)}")}">{esc(n)}</a>'
             for n in names
         )
         src_html = (
@@ -1500,10 +1520,16 @@ class Handler(BaseHTTPRequestHandler):
         # column — we pass the tag through it until that column is
         # renamed. Renderer always cross-refs the catalog by this value.
         inst = db_install_component(tag, path)
-        # New shape: install creates a topnav entry. The component itself
-        # renders on its own /c/<inst>/ page when the entry is clicked.
-        # No inline render on the homepage; no bundle loaded here.
-        comp = {"id": inst, "scheme": tag, "path": path, "position": 0}
+        if inst is None:
+            raise FormError("install rejected by the writer (PII filter or "
+                            "permissions). Nothing was saved.")
+        # Re-fetch from DB so the rendered anchor reflects what was actually
+        # persisted, not what we synthesized in memory. Defensive against
+        # silent writer rejections and future schema drift.
+        comp = next((c for c in db_list_components() if c["id"] == inst), None)
+        if comp is None:
+            raise FormError("install succeeded but the row could not be "
+                            "read back. Refresh and try again.")
         anchor = _topnav_anchor_html(comp, catalog)
         # Out-of-band: clear the chooser modal so the new nav entry is visible.
         anchor += '<div id="modal-slot" hx-swap-oob="innerHTML"></div>'
@@ -1581,7 +1607,7 @@ class Handler(BaseHTTPRequestHandler):
         if parent:
             plabel = db_catcode_label(parent) or parent
             parent_link = (
-                f'<a href="{u(f"/cat/{esc(parent)}/")}">{esc(plabel)}</a>'
+                f'<a href="{u(f"/cat/{url_path_seg(parent)}/")}">{esc(plabel)}</a>'
             )
         else:
             parent_link = '<a href="{0}/">top</a>'.format(BASE)

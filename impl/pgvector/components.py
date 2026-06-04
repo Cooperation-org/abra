@@ -35,14 +35,28 @@ def _components_file_path() -> Path:
     return Path.home() / ".abra" / "components.yaml"
 
 
-@lru_cache(maxsize=1)
+# Mtime-keyed cache: long-running processes pick up yaml edits without
+# a restart. lru_cache outlives the file and was a footgun in the view
+# shim — chooser served stale entries after every edit.
+_LOAD_CACHE: dict = {"mtime": None, "data": {}}
+
+
 def load_components() -> dict:
-    """Read and parse the components file. Cached for the process lifetime.
+    """Read and parse the components file. Re-reads on file mtime change.
     Returns the parsed dict; `{}` if no file exists.
     Raises ImportError if PyYAML is not installed but a file exists."""
     path = _components_file_path()
     if not path.exists():
+        if _LOAD_CACHE["mtime"] is not None:
+            _LOAD_CACHE["mtime"] = None
+            _LOAD_CACHE["data"] = {}
         return {}
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        mtime = None
+    if _LOAD_CACHE["mtime"] == mtime:
+        return _LOAD_CACHE["data"]
     if yaml is None:
         raise ImportError(
             f"PyYAML is required to read {path}. "
@@ -52,6 +66,8 @@ def load_components() -> dict:
         data = yaml.safe_load(f) or {}
     if not isinstance(data, dict):
         raise ValueError(f"{path} must be a YAML mapping at the top level")
+    _LOAD_CACHE["mtime"] = mtime
+    _LOAD_CACHE["data"] = data
     return data
 
 
@@ -80,9 +96,11 @@ def components_for_scheme(scheme_key: str) -> list[dict]:
 
 
 def reset_cache() -> None:
-    """Clear the cached parse. Use after editing the file in a long-running
-    process. Tests call this between cases."""
-    load_components.cache_clear()
+    """Clear the cached parse. Tests call this between cases. The
+    mtime-keyed cache auto-invalidates on file edits, so callers no
+    longer need to invoke this in normal operation."""
+    _LOAD_CACHE["mtime"] = None
+    _LOAD_CACHE["data"] = {}
 
 
 if __name__ == "__main__":
