@@ -1029,10 +1029,23 @@ def binding_list_html(rows: list[tuple], q: str | None,
     return f'<ul class="binding-list">{"".join(items)}</ul>'
 
 
+def _one_line_excerpt(text: str, n: int = 140) -> str:
+    """First non-empty line of text, trimmed to n chars with ellipsis.
+    Used as the collapsed summary so the user can see which entry is
+    which without expanding it."""
+    if not text:
+        return ""
+    line = next((ln.strip() for ln in text.splitlines() if ln.strip()), "")
+    if len(line) > n:
+        line = line[:n].rstrip() + "…"
+    return line
+
+
 def recent_feed_html(items: list[dict]) -> str:
     """Reverse-chrono feed of content blobs. Each entry is a <details>
-    so it can collapse to a compact summary or expand to the full body.
-    A master toggle in the page collapses/expands all entries at once."""
+    so it can collapse to a compact summary (date + one-line excerpt)
+    or expand to the full body. A master toggle in the page collapses
+    or expands all entries at once."""
     if not items:
         return ""  # Zero app noise.
     parts: list[str] = []
@@ -1042,19 +1055,23 @@ def recent_feed_html(items: list[dict]) -> str:
         src = r.get("source_file") or ""
         body = r.get("content") or ""
         names = r.get("names") or []
+        excerpt = _one_line_excerpt(body)
         name_links = " · ".join(
             f'<a class="name-text" href="{u(f"/bindings/?q={esc(n)}")}">{esc(n)}</a>'
             for n in names
+        )
+        src_html = (
+            f'<span class="feed-src muted">{esc(src)}</span>'
+            if src else ""
         )
         parts.append(
             f'<details class="feed-item" id="feed-{cid}" open>'
             f'<summary class="feed-head">'
             f'<span class="feed-date">{esc(date)}</span>'
-            f'<span class="feed-src muted">{esc(src)}</span>'
-            f'<span class="code">#{cid}</span>'
+            f'<span class="feed-excerpt">{esc(excerpt)}</span>'
             f'</summary>'
             f'<div class="feed-body">{linkify(body)}</div>'
-            + (f'<footer class="feed-names">{name_links}</footer>' if names else "")
+            + (f'<footer class="feed-names">{src_html}{name_links}</footer>' if (names or src) else "")
             + f'</details>'
         )
     return "".join(parts)
