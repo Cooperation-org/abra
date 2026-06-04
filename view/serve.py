@@ -897,7 +897,9 @@ def component_page_html(inst: str) -> str:
 </head>
 <body>
   <nav class="topnav">
-    <a href="{BASE}/" class="nav" aria-label="home"><i class="fa-solid fa-house"></i></a>
+    <a href="{BASE}/" class="nav" aria-label="Categories" title="Categories"><i class="fa-solid fa-folder-tree"></i></a>
+    <a href="{BASE}/bindings/" class="nav" aria-label="Bindings" title="Bindings"><i class="fa-solid fa-list"></i></a>
+    <a href="{BASE}/recent/" class="nav" aria-label="Recent" title="Recent"><i class="fa-solid fa-arrow-down-wide-short"></i></a>
     <a href="#" class="nav" onclick="history.back();return false" aria-label="back"><i class="fa-solid fa-arrow-left"></i></a>
     <button type="button" class="nav add-component write-only"
             hx-get="{BASE}/components/chooser"
@@ -909,6 +911,8 @@ def component_page_html(inst: str) -> str:
           hx-trigger="load"
           hx-swap="innerHTML"></span>
     <span class="spacer"></span>
+    <button type="button" class="nav edit-toggle"
+            onclick="document.body.classList.toggle('editing')" aria-label="edit"><i class="fa-solid fa-pen"></i></button>
   </nav>
 
   <div class="page">
