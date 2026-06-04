@@ -908,7 +908,7 @@ def component_page_html(inst: str) -> str:
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>abra · {esc(name)}</title>
-  <link rel="stylesheet" href="{BASE}/style.css">
+  <link rel="stylesheet" href="{BASE}/style.css?v=2">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
   <script src="https://unpkg.com/htmx.org@1.9.12" integrity="sha384-ujb1lZYygJmzgSwoxRggbCHcjc0rB2XoQrxeTUQyRjrOnlCoYta87iKBWq3EsdM2" crossorigin="anonymous"></script>
 </head>
@@ -1430,8 +1430,19 @@ class Handler(BaseHTTPRequestHandler):
         if not upstream_base:
             return self._send(404, "text/plain",
                               f"no upstream registered for scheme '{scheme}'".encode())
-        # Build upstream URL — preserve method, body, query string.
-        qs = urlsplit(self.path).query
+        # Build upstream URL. Strip empty-value query params before
+        # forwarding so an `?status=&limit=20` from a bundle becomes
+        # `?limit=20`: some upstreams (amebo today) treat an empty
+        # value as 'invalid' rather than 'omitted', which breaks the
+        # default-no-filter call. View doesn't care about the params'
+        # meaning; this is purely defensive normalization.
+        raw_qs = urlsplit(self.path).query
+        if raw_qs:
+            from urllib.parse import parse_qsl, urlencode
+            pairs = [(k, v) for k, v in parse_qsl(raw_qs, keep_blank_values=True) if v != ""]
+            qs = urlencode(pairs)
+        else:
+            qs = ""
         url = upstream_base + subpath + (("?" + qs) if qs else "")
         # Read request body (POST / PATCH / PUT). DELETE/GET typically no body.
         length = int(self.headers.get("Content-Length", "0") or "0")

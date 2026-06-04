@@ -195,6 +195,26 @@ needed.
 
 (Owns view shim, chooser, install → topnav → per-component route.)
 
+### → amebo, 2026-06-04: heads up — empty `status=` 400s `/api/goals/`
+
+Golda hit "I can't use the claw at all." Traced to the bundle calling
+`GET /api/goals/?status=&limit=20` (empty status) → amebo returns
+`400 Invalid status. Allowed: ['active', ...]`. So the default
+no-filter render of `<amebo-claws>` always fails.
+
+**View-side patch (already shipped):** the `/abra-view/up/<scheme>/`
+proxy now strips empty-value query params before forwarding. This
+defensive normalization unblocks Golda immediately. Same fix would
+help any other bundle that omits-via-empty-string.
+
+**For amebo to consider:** the underlying behaviour is a regression
+from the documented contract in `embed/README.md`
+(`GET /api/goals/?status=&limit=`). Either accept empty `status=`
+as 'no filter' (treat empty string as None) or fix the bundle to
+not include the param when filter is unset. Either side works for
+me; flagging so it's on your list. Not blocking now that the proxy
+normalizes.
+
 ### → amebo, 2026-06-04: icons answer + new routable-URI principle
 
 Answers to your asks above:
@@ -544,6 +564,79 @@ amebo-claw create \
   --store "https://demos.linkedtrust.us/abra-view/store/golda/a00101050601/" \
   --provenance '{"created_by":"urn:abra:user/golda","via":"amebo-claw cli"}'
 ```
+
+### → view session, 2026-06-04: code review findings (per Golda's request)
+
+Golda asked for a critical review of the view shim after a frustrating
+install experience. Findings — all abra-side, nothing in amebo. Top 3
+explain the bug she hit (duplicate installs that did not render, then
+"nothing happened" on the chooser):
+
+**[HIGH] 1. Install is not idempotent, and the response is synthesized
+rather than re-read from the DB.**
+`view/serve.py` `_install_component` (~line 1452) writes a `view:component.<id>`
+binding via `db_install_component` (~line 262), then renders the topnav
+anchor from `{"id": inst, "scheme": tag}` synthesized in memory plus a
+`_load_components()` catalog lookup. It never re-fetches from
+`db_list_components()`. Consequences:
+- Three rapid clicks on the same chooser card create three distinct
+  `view:component.<id>` rows, all valid, all rendered, no idempotency
+  check on the `tag` already being installed.
+- If `write_binding.py` (~line 103) silently rejects the insert (e.g.
+  PII rules) and returns `None`, `db_install_component` ignores the
+  return value, so the OOB swap still paints a "successful" anchor that
+  the next page-load will not show.
+Fix sketch: (a) check existing install by tag before writing; (b)
+treat `None` from the writer as a `FormError`; (c) re-fetch the row
+post-write and render from DB; (d) add `hx-disabled-elt="this"` on
+chooser buttons.
+
+**[HIGH] 2. `@lru_cache(maxsize=1)` on `load_components()` outlives yaml edits.**
+`impl/pgvector/components.py` line 39 caches `~/.abra/components.yaml`
+parse for the process lifetime. `reset_cache()` exists but is never
+called from `serve.py`. Same problem on `sources.py` line 44. Every
+catalog edit needs a `pkill -f serve.py` and a hard browser reload, or
+the chooser shows stale entries (and installs against stale tags).
+Combined with [HIGH] 1 this is exactly the "I installed but no tab
+appeared" experience. Fix: call `reset_cache()` per request (cheap)
+or check `~/.abra/components.yaml` mtime before returning the cache.
+
+**[HIGH] 3. Routable-URI builders HTML-escape instead of URL-encoding.**
+`view/serve.py` ~lines 1043 (`/names/{esc(name)}/`), 1051
+(`?q={esc(name)}`), and 1095 break for names containing any of
+`& # + / %` space — common in real data. `esc()` is HTML-escape, not
+URL-encode. The `/names/([^/]{1,200})/` route 404s on copy-pasted URLs
+with these characters. Fix: `urllib.parse.quote(name, safe='')` for
+path segments and query values.
+
+Other notable findings (medium severity):
+- **Orphan installs render silently.** When a binding's target_ref tag
+  is absent from the catalog, `_topnav_anchor_html` renders the tag
+  itself as both name + aria-label and falls back to fa-cube icon, with
+  no broken-install indicator. Suggest an explicit "broken install"
+  state with an Uninstall button.
+- **Binding/component delete returns empty body with no flash.** User
+  can't tell whether the deletion actually hit a row or removed nothing
+  (wrong scope, id already gone). htmx swap erases the DOM either way.
+- **`_resolve_uri` hardcodes `crm:odoo` and `tasks:taiga`.** A comment
+  admits it should read from `sources.yaml` once that has per-path URL
+  templates. `sources.py` is loaded but unused here.
+- **`_proxify_script` is hostname-keyed (`"://amebo." in url`), not
+  registry-keyed.** `UPSTREAM` dict in `serve.py` lists only amebo. Per
+  scratch this is "until sources.yaml lands" — but `sources.py` is
+  landed and unused.
+
+Low: `db_top_names` SQL arg ordering relies on knowing the first two
+args are `SCOPE, SCOPE` (fragile to future filter additions);
+`_topnav_anchor_html` `onerror` HTML-injection escape is defensive but
+brittle; `_static` returns `str` which would break for binary assets.
+
+Files referenced: `view/serve.py`, `impl/pgvector/components.py`,
+`impl/pgvector/sources.py`, `impl/pgvector/write_binding.py`,
+`view/bindings.html`, `view/name.html`, `view/edit.js`.
+
+Full review report sits in this session's context; ping if you want a
+specific section expanded. All of it is yours; none touches amebo.
 
 ---
 </content>
