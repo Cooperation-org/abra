@@ -465,16 +465,36 @@ def tx(key: str, overrides: dict[str, str]) -> str:
     return overrides.get(key, VIEW_DEFAULTS.get(key, key))
 
 
+def asset_version() -> str:
+    """Max mtime of style.css and edit.js as a stringified int. Embedded
+    in HTML as `?v=<asset_version>` so the version auto-bumps the
+    instant either file is edited. No manual ?v=N pumping; no stale
+    assets after a CSS change."""
+    mt = 0
+    for fname in ("style.css", "edit.js"):
+        p = HERE / fname
+        try:
+            if p.exists():
+                m = int(p.stat().st_mtime)
+                if m > mt:
+                    mt = m
+        except OSError:
+            pass
+    return str(mt or 1)
+
+
 def apply_view_texts(html: str, overrides: dict[str, str]) -> str:
-    """Replace `__T_<key>__` with override-or-default (escaped) AND
-    `__BODY_CLASS__` with the space-joined body classes derived from
-    UI preference overrides — so the user's persisted UI state is
-    applied at first render, no flash, no JS round trip."""
+    """Replace `__T_<key>__` with override-or-default (escaped),
+    `__BODY_CLASS__` with the space-joined body classes from UI prefs,
+    and `__ASSET_VER__` with the current asset-mtime version so cached
+    style.css / edit.js auto-invalidate the moment they change."""
     def replace(m):
         return esc(tx(m.group(1), overrides))
     html = re.sub(r"__T_([a-z][a-z0-9._]*)__", replace, html)
     classes = [cls for key, cls in UI_PREFS.items() if overrides.get(key) == "1"]
-    return html.replace("__BODY_CLASS__", " ".join(classes))
+    html = html.replace("__BODY_CLASS__", " ".join(classes))
+    html = html.replace("__ASSET_VER__", asset_version())
+    return html
 
 
 def db_recent_content(limit: int = 50, q: str | None = None,
@@ -943,7 +963,7 @@ def component_page_html(inst: str) -> str:
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>abra · {esc(name)}</title>
-  <link rel="stylesheet" href="{BASE}/style.css?v=5">
+  <link rel="stylesheet" href="{BASE}/style.css?v={asset_version()}">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
   <script src="https://unpkg.com/htmx.org@1.9.12" integrity="sha384-ujb1lZYygJmzgSwoxRggbCHcjc0rB2XoQrxeTUQyRjrOnlCoYta87iKBWq3EsdM2" crossorigin="anonymous"></script>
 </head>
@@ -1434,6 +1454,7 @@ class Handler(BaseHTTPRequestHandler):
             return ""
         return path.read_text()
 
+
     def _read_form(self) -> dict[str, str]:
         length = int(self.headers.get("Content-Length", "0"))
         raw = self.rfile.read(length).decode("utf-8") if length else ""
@@ -1446,6 +1467,9 @@ class Handler(BaseHTTPRequestHandler):
         # Strip the query string first; otherwise ?v=2 cache-busts break
         # this check and CSS gets served as text/html.
         url_path = urlsplit(self.path).path
+        url_qs = urlsplit(self.path).query
+        is_asset = (url_path.endswith("/style.css")
+                    or url_path.endswith("/edit.js"))
         if url_path.endswith("/style.css") and status == 200:
             ctype = "text/css; charset=utf-8"
         if url_path.endswith("/edit.js") and status == 200:
@@ -1453,7 +1477,18 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
+        # Versioned assets are content-addressed by mtime in the query
+        # string, so the browser can cache them forever — the URL
+        # changes as soon as the file does. Unversioned assets and
+        # every HTML response stay no-store so an edit shows up on the
+        # very next request.
+        if is_asset and "v=" in url_qs and status == 200:
+            self.send_header(
+                "Cache-Control",
+                "public, max-age=31536000, immutable",
+            )
+        else:
+            self.send_header("Cache-Control", "no-store")
         for k, v in (extra_headers or {}).items():
             self.send_header(k, v)
         self.end_headers()
