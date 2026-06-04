@@ -637,13 +637,19 @@ body:not(.editing) .write-only { display: none !important; }
   padding: 0.75rem 1rem;
   background: var(--surface);
 }
-.feed-head {
+.feed-item > .feed-head {
+  list-style: none;
+  cursor: pointer;
   display: flex;
   gap: 0.75rem;
   align-items: baseline;
   font-size: 0.85rem;
   margin-bottom: 0.5rem;
 }
+.feed-item > .feed-head::-webkit-details-marker { display: none; }
+.feed-item:not([open]) > .feed-head { margin-bottom: 0; }
+.feed-item:not([open]) > .feed-body,
+.feed-item:not([open]) > .feed-names { display: none; }
 .feed-date { font-weight: 600; }
 .feed-src { font-style: italic; }
 .feed-body {
@@ -656,6 +662,25 @@ body:not(.editing) .write-only { display: none !important; }
   border-top: 1px dashed var(--border);
   font-size: 0.85rem;
 }
+
+/* Recent feed master toggle — tilty triangle that flips all items. */
+.feed-controls {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 0.5rem;
+}
+.feed-toggle {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 0.9rem;
+}
+.feed-toggle:hover { color: var(--ink); }
+.feed-toggle i { transition: transform 0.15s ease; transform: rotate(-90deg); }
+.feed-toggle.expanded i { transform: rotate(0deg); }
 
 /* Drag-to-reorder cues on the bindings list (active in edit mode). */
 ul.binding-list > li { display: flex; align-items: center; gap: 0.5rem; }

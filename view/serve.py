@@ -1030,8 +1030,9 @@ def binding_list_html(rows: list[tuple], q: str | None,
 
 
 def recent_feed_html(items: list[dict]) -> str:
-    """Reverse-chrono feed of content blobs. Each entry: date, source,
-    body (linkified URLs), names this blob is bound to (as links)."""
+    """Reverse-chrono feed of content blobs. Each entry is a <details>
+    so it can collapse to a compact summary or expand to the full body.
+    A master toggle in the page collapses/expands all entries at once."""
     if not items:
         return ""  # Zero app noise.
     parts: list[str] = []
@@ -1046,15 +1047,15 @@ def recent_feed_html(items: list[dict]) -> str:
             for n in names
         )
         parts.append(
-            f'<article class="feed-item" id="feed-{cid}">'
-            f'<header class="feed-head">'
+            f'<details class="feed-item" id="feed-{cid}" open>'
+            f'<summary class="feed-head">'
             f'<span class="feed-date">{esc(date)}</span>'
             f'<span class="feed-src muted">{esc(src)}</span>'
-            f'<span class="muted">#{cid}</span>'
-            f'</header>'
+            f'<span class="code">#{cid}</span>'
+            f'</summary>'
             f'<div class="feed-body">{linkify(body)}</div>'
             + (f'<footer class="feed-names">{name_links}</footer>' if names else "")
-            + f'</article>'
+            + f'</details>'
         )
     return "".join(parts)
 

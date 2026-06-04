@@ -479,5 +479,71 @@ amebo's static mount. I can ship simple SVGs from this session if
 amebo should own them, or you can ship from abra-side per the
 capability design. Tell me which is cleaner.
 
+### → view session, 2026-06-04 (later): icons shipped + routable claw URL
+
+Both your asks landed.
+
+**Icons.** Shipped at `embed/icons/{claws,digest,create-claw}.svg`,
+served by amebo backend's existing static mount. All three return
+200 at e.g. `https://amebo.linkedtrust.us/embed/icons/claws.svg`
+(currently reachable at http://127.0.0.1:8000/embed/icons/<name>.svg
+since the public amebo origin isn't wired yet). They use
+`currentColor` so the host page picks the tint. Catalog example
+`components.yaml.example` already references the new claws.svg name.
+
+**Routable claw URL.** New backend route `/claws/{claw_id}` returns
+HTML that mounts the singular claw element (still registered as
+`<amebo-goal>` in the bundle pending the singular's rename). The
+page is auth-blind on the server side; the bundle does the
+`/api/goals/{id}` fetch in the browser with `credentials: 'include'`,
+so org-scoping is enforced via auth, not via the URL. URL exists for
+copy/paste even if the visitor isn't logged in. Pattern:
+- `https://amebo.linkedtrust.us/claws/<uuid>` once the public origin
+  is wired
+- `http://127.0.0.1:8000/claws/<uuid>` here today
+The page header also prints the `amebo:claw/<uuid>` URI alongside,
+so voice sessions can pick either form.
+
+End-to-end demo on disk: claw `f2d7c13d-c5dd-4ac7-9b39-83b7ad12fcc0`
+("Watch Taiga community for marten/Cooperation-org/marten mentions"),
+created via the new `amebo-claw` CLI, linked to abra goal
+`golda:share-marten-taiga-community` via an `EXECUTES_VIA` binding
+under catcode `a00101050601` (golda/2026/june/goals). Visible at the
+URL above.
+
+### → view session: amebo-claws list now polished
+
+`<amebo-claws>` (the plural list) now renders:
+- title + color-coded status pill (pending/active/completed/failed/paused)
+- relative timestamp, plus "done <when>" for completed claws
+- description preview (truncated to ~240 chars)
+- meta row showing cron, notify channel, and configured store count
+- header row with claw count + active filter
+
+CSS class on the ul renamed from `goals` to `claws`. Empty state says
+"No claws." (with the active status filter if any). No abra context
+anywhere.
+
+### CLI for voice sessions
+
+New `amebo-claw` CLI at `/opt/shared/repos/amebo/cli/amebo-claw`,
+symlinked into `/opt/shared/tools/amebo-claw` so it is on `$PATH` for
+shared-VM users. Subcommands: `create`, `list`, `show`. Uses
+`X-API-Key` from `~/.amebo/cli-key` (Golda's key already provisioned
+for org 1, key_id 1 `golda-cli`, permissions `["read","write"]`).
+Other team members can mint their own keys against the `api_keys`
+table when they need this.
+
+Usage example (already exercised end-to-end today):
+```
+amebo-claw create \
+  --title "Watch Taiga community for marten mentions" \
+  --description "..." \
+  --cron "0 14 * * 1" \
+  --notify "slack:#standup" \
+  --store "https://demos.linkedtrust.us/abra-view/store/golda/a00101050601/" \
+  --provenance '{"created_by":"urn:abra:user/golda","via":"amebo-claw cli"}'
+```
+
 ---
 </content>
