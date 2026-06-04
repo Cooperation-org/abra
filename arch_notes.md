@@ -141,8 +141,80 @@ Some relationship types naturally point to structured data in specialized system
 - **Contacts → CRM** (e.g. Odoo). Abra holds the pet name and relationships. The CRM holds email, phone, title, org, interaction history.
 - **Todos → task manager** (e.g. Taiga). Abra knows a name HAS a todo. The task manager holds status, assignee, due date.
 - **Documents → file system or CMS**. Abra points to files, the files live where files live.
+- **Claws → amebo**. Abra holds the user's conceptual goal as prose. Amebo holds the computational unit (a claw) that a Claude loop will execute. See "Goals and claws" below.
 
-The binding target for an external system entry uses a reference like `crm:odoo/contact/12345` or `tasks:taiga/issue/789`. Implementations define how to resolve these references. Which external systems a user or team connects to is configuration, not code — belongs in per-user or per-team data (e.g. sources.yaml or similar).
+The binding target for an external system entry uses a reference like `crm:odoo/contact/12345`, `tasks:taiga/issue/789`, or `amebo:claw/<uuid>`. Implementations define how to resolve these references. Which external systems a user or team connects to is configuration, not code, and belongs in per-user or per-team data (e.g. sources.yaml or similar).
+
+## Goals and claws
+
+Two different concepts sometimes share the word "goal". Distinguish them.
+
+**Goal (abra).** A user's conceptual goal. A meaningful title plus a brief prose blob shaped to communicate to intelligent actors (humans and AI), with bindings to specific objects (contacts, orgs, projects, other goals). No strict schema. The shape is what a reader can interpret. May or may not have any claws attached.
+
+**Claw (amebo).** A computational unit a Claude loop will execute. Strict schema (status enum, target criteria, trigger config, org scope). Lives in amebo. Internal to amebo this is the `goals` table; user-facing surfaces (web components, slack messages) call it a *claw*. Amebo's dispatcher acts on claws, not on abra goals.
+
+**Connector.** An abra binding from a goal content row to an amebo claw, target_ref `amebo:claw/<uuid>`, relationship `EXECUTES_VIA`. Zero, one, or many claws per goal. Same claw could in principle serve multiple goals via separate bindings.
+
+**Amebo is independently complete.** A claw needs no abra goal to exist. Amebo's claws table requires no `abra_goal_name` column and no foreign key to abra. A team running amebo standalone gets the full amebo product with no degraded experience. The linkage is opt-in and lives entirely on the abra side, via the EXECUTES_VIA binding. This is a hard constraint, not a default to be overridden later.
+
+Operationally:
+- "What claws serve this goal?" is answered by querying abra bindings, never by walking amebo state.
+- "What goal does this claw serve?" is answered by querying abra bindings in the reverse direction (`WHERE target_type='amebo' AND target_ref='amebo:claw/<uuid>'`). When abra is not configured or reachable, amebo simply does not show that decoration. Nothing breaks.
+- Amebo's stale `abra_*` mirror tables (if present) are retired. Amebo reads live abra at render time via a read-with-write-new PG role (e.g. `amebo_writer`: SELECT all, INSERT only on `content` and `bindings`). No mirror sync.
+
+**Component naming follows user-facing meaning.** Abra surfaces a `goals` component (the user's conceptual goals as bindings). Amebo surfaces a `claws` component (the computational units). They are separate components on separate surfaces. Components on the two sides do not need to share names.
+
+## Context stores and claws
+
+Amebo treats persistent context as pluggable, not as an abra dependency. The contract for a context store (HTTP shape, write/read endpoints, abra-as-store URL shape) lives in [`context-store-contract.md`](context-store-contract.md). What follows here is just the claw-side view onto that contract.
+
+A claw carries **zero or more store URLs** in its `config`. Each URL is opaque to amebo. The base URL identifies the store; amebo never parses the path. At each tick, the claw reads context from each store (`GET /entries`) and optionally writes findings back (`POST /entries`). With zero stores configured, the claw runs purely on its own state and never touches an external context layer.
+
+Shape inside `config`:
+
+```json
+{
+  "context_stores": [
+    "https://demos.linkedtrust.us/abra-view/store/golda/a00101050601/",
+    "https://other-store.example.org/things/"
+  ],
+  "provenance": {
+    "created_by": "urn:abra:user/golda",
+    "via": "amebo-claws-attach",
+    "at": "2026-06-04T..."
+  }
+}
+```
+
+Both fields are optional and opaque to amebo's core. Stores are URLs the claw will hit; provenance records who created the claw and through which surface.
+
+### Where the values come from
+
+- **amebo-create-claw form** (manual, no abra context): the user can paste store URLs into an optional input. Provenance is set from the authenticated identity.
+- **Action components** (e.g. `amebo-claws-attach`, see [`capability-design.md`](capability-design.md)): the action computes a natural store URL from the item it was activated on (e.g. for an abra item under catcode X, the store URL is `https://<abra-host>/store/<scope>/<X>/`), adds it to the new claw's `context_stores`, and optionally writes a first `/entries` POST into that store carrying the item's prose summary plus its binding URIs so the claw's first tick has something to read.
+- **CLI / Slack / other surfaces**: same shape; whatever creates the claw sets the config.
+
+### Initial context goes in the store, not on the claw
+
+Earlier drafts of this doc carried a separate `config.context_payload` field on the claw (URIs + summary the claw was given at creation). Per [`context-store-contract.md`](context-store-contract.md), that initial context belongs as the **first `/entries` POST into the claw's store**, not as a parallel field on the claw. The claw's first tick reads it via `GET /entries` like any other context. Simpler, and keeps the claw config free of provider-specific shapes.
+
+### Decoupling principle (per capability-design.md §5 and context-store-contract.md)
+
+Amebo never pulls from abra synchronously to function. It calls the store URLs configured on each claw. If a store is unreachable, that tick proceeds with whatever the claw can fetch from the rest; nothing blocks. The same claw is usable when created from a Slack DM, a CLI, or a different UI; only the source of the config differs.
+
+**Goal binding convention (abra-side).** Emerged from the first 8 real goals authored 2026-06-04.
+
+- One content row holds the prose blob in the user's voice. Markdown allowed. Hedges, political framing, specific people's names, and feasibility uncertainty are preserved, not flattened.
+- One ABOUT binding marks the content row as a goal:
+  - `scope` = user scope for personal goals (e.g. `golda`); a team scope (e.g. `linkedtrust`) for shared team goals.
+  - `name` = kebab-case outcome-shaped slug. Not a slug that encodes the deadline (deadlines drift).
+  - `relationship` = `ABOUT`.
+  - `target_type` = `content`, `target_ref` = content row id (as text).
+  - `qualifier` = `'goal'`. This is the marker that makes the entry queryable as a goal.
+- Additional bindings can attach for the strongest relationships (e.g. `LEADS_INTO` from one goal to another, `EXECUTES_VIA` to an amebo claw, references to pet names like `linkedtrust:our-crm` or `linkedtrust:our-task-tracker`). Most context lives in the prose; only structural relationships need their own bindings.
+- The prose can name pet names inline (`linkedtrust:our-crm`, `golda:george-polisner`) so an intelligent reader can resolve them without bindings being exhaustive.
+
+Query a user's goals: `SELECT * FROM bindings WHERE scope=$user AND qualifier='goal'`. Join `content` on `target_ref::int = id` for the prose.
 
 ## Data landscape (sources, sinks, connected systems)
 

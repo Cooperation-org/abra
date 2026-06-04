@@ -558,7 +558,8 @@ def link_for_category(code: str, label: str) -> str:
     tail = (label or "").rsplit("/", 1)[-1].strip().lower()
     if tail in PORTAL_LABELS:
         return u("/bindings/") + "?label=" + quote(tail)
-    return u("/bindings/") + f"?catcode={code}"
+    # Dedicated per-catcode page. Routable, voice-pasteable.
+    return u(f"/cat/{code}/")
 
 
 def row_html(code: str, label: str) -> str:
@@ -1243,6 +1244,11 @@ class Handler(BaseHTTPRequestHandler):
             from urllib.parse import unquote
             name = unquote(m_name.group(1))
             return lambda: self._name_detail(name)
+        # Per-catcode page (voice-pasteable URL).
+        m_cat = re.fullmatch(r"/cat/([a-z0-9]{2,64})/?", path)
+        if m_cat and method == "GET":
+            code = m_cat.group(1)
+            return lambda: self._cat_view(code)
 
         # tree + new-top
         if method == "GET" and path == "/catcodes/tree":
@@ -1431,7 +1437,68 @@ class Handler(BaseHTTPRequestHandler):
 
     def _name_detail(self, name: str) -> str:
         rows = db_name_detail(name)
-        return name_detail_html(name, rows)
+        frag = name_detail_html(name, rows)
+        # htmx accordion fetches and grafts the fragment inline. A direct
+        # browser visit needs a full page so the URL is shareable and
+        # voice-pasteable.
+        if self.headers.get("HX-Request"):
+            return frag
+        return apply_view_texts(
+            (HERE / "name.html").read_text()
+            .replace("__BASE__", BASE)
+            .replace("__NAME__", esc(name))
+            .replace("__DETAIL__", frag),
+            db_get_view_texts(),
+        )
+
+    def _cat_view(self, code: str) -> str:
+        """Dedicated page for one catcode. Voice-pasteable URL. Shows
+        the catcode's label, its immediate subtree, and a load-on-render
+        bindings list filtered to its subtree."""
+        label = db_catcode_label(code)
+        if label is None:
+            return ""  # 404 handled by dispatcher (empty body)
+        # Subtree: render this code's children inline via tree_html-style
+        # iteration. Reuse db_list + a focused render so we don't pull
+        # the universe.
+        rows = db_list()
+        by_parent: dict[str | None, list[tuple[str, str]]] = {}
+        for c, parent, lbl in rows:
+            by_parent.setdefault(parent, []).append((c, lbl))
+        def render(parent: str | None) -> str:
+            kids = by_parent.get(parent, [])
+            if not kids:
+                return ""
+            return "".join(li_html(cc, ll, render(cc)) for cc, ll in kids)
+        subtree = (
+            f'<ul class="tree">{render(code)}</ul>'
+            if by_parent.get(code) else
+            '<p class="muted">No subcategories.</p>'
+        )
+        # Parent breadcrumb link (or "top" when at the home root)
+        with conn() as c, c.cursor() as cur:
+            cur.execute(
+                "SELECT parent_catcode FROM catcode_registry WHERE catcode = %s",
+                (code,),
+            )
+            row = cur.fetchone()
+            parent = row[0] if row else None
+        if parent:
+            plabel = db_catcode_label(parent) or parent
+            parent_link = (
+                f'<a href="{u(f"/cat/{esc(parent)}/")}">{esc(plabel)}</a>'
+            )
+        else:
+            parent_link = '<a href="{0}/">top</a>'.format(BASE)
+        return apply_view_texts(
+            (HERE / "cat.html").read_text()
+            .replace("__BASE__", BASE)
+            .replace("__CODE__", esc(code))
+            .replace("__LABEL__", esc(label))
+            .replace("__SUBTREE__", subtree)
+            .replace("__PARENT_LINK__", parent_link),
+            db_get_view_texts(),
+        )
 
     def _get_form_edit(self, code: str) -> str:
         row = db_get(code)
