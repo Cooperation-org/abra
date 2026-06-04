@@ -765,6 +765,10 @@ def component_chooser_html() -> str:
             'trust to make them installable here.</p>'
             '</div></div>'
         )
+    # Tags currently installed → render grayed out, unclickable. One
+    # install per tag; the per-component page's danger-zone is where
+    # uninstall lives.
+    installed_tags = {c["scheme"] for c in db_list_components()}
     cards = []
     for tag, c in catalog.items():
         icon = c.get("icon") or ""
@@ -772,18 +776,31 @@ def component_chooser_html() -> str:
             f'<img class="chooser-icon" src="{esc(icon)}" alt="" loading="lazy">'
             if icon else ""
         )
-        cards.append(
-            f'<button class="chooser-card" type="button"'
-            f' hx-post="{u("/components/install")}"'
-            f' hx-vals=\'{{"tag":"{esc(tag)}"}}\''
-            f' hx-target="#topnav-installed" hx-swap="beforeend">'
-            f'{icon_html}'
-            f'<span class="chooser-text">'
-            f'<span class="chooser-title">{esc(c.get("name") or tag)}</span>'
-            f'<span class="chooser-desc">{esc(c.get("description") or "")}</span>'
-            f'</span>'
-            f'</button>'
-        )
+        title = c.get("name") or tag
+        desc = c.get("description") or ""
+        if tag in installed_tags:
+            cards.append(
+                f'<div class="chooser-card installed" aria-disabled="true" title="already installed">'
+                f'{icon_html}'
+                f'<span class="chooser-text">'
+                f'<span class="chooser-title">{esc(title)}</span>'
+                f'<span class="chooser-desc">{esc(desc)}</span>'
+                f'</span>'
+                f'</div>'
+            )
+        else:
+            cards.append(
+                f'<button class="chooser-card" type="button"'
+                f' hx-post="{u("/components/install")}"'
+                f' hx-vals=\'{{"tag":"{esc(tag)}"}}\''
+                f' hx-target="#topnav-installed" hx-swap="beforeend">'
+                f'{icon_html}'
+                f'<span class="chooser-text">'
+                f'<span class="chooser-title">{esc(title)}</span>'
+                f'<span class="chooser-desc">{esc(desc)}</span>'
+                f'</span>'
+                f'</button>'
+            )
     return (
         '<div class="modal" data-modal onclick="if(event.target===this)this.remove()">'
         '<div class="modal-card">'
@@ -1461,6 +1478,13 @@ class Handler(BaseHTTPRequestHandler):
         catalog = _load_components()
         if tag not in catalog:
             raise FormError(f"unknown component: {tag}")
+        # Idempotent: if this tag is already installed, close the modal
+        # silently. A stale chooser (cached HTML, double-click) cannot
+        # create a duplicate. Only the OOB modal-close is returned, so
+        # nothing gets appended to #topnav-installed.
+        existing = [c for c in db_list_components() if c["scheme"] == tag]
+        if existing:
+            return '<div id="modal-slot" hx-swap-oob="innerHTML"></div>'
         # db_install_component still stores under the legacy `scheme`
         # column — we pass the tag through it until that column is
         # renamed. Renderer always cross-refs the catalog by this value.

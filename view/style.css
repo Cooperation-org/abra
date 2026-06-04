@@ -120,6 +120,15 @@ header h1 {
   font: inherit;
 }
 .chooser-card:hover { border-color: var(--brand); background: var(--brand-soft); }
+.chooser-card.installed {
+  opacity: 0.45;
+  cursor: default;
+  pointer-events: none;
+}
+.chooser-card.installed:hover {
+  border-color: var(--border);
+  background: transparent;
+}
 .chooser-icon { width: 36px; height: 36px; flex: 0 0 36px; border-radius: 6px; object-fit: cover; background: var(--bg-soft); }
 .chooser-text { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
 .chooser-title { color: var(--ink); font-weight: 600; font-size: 0.9rem; }
