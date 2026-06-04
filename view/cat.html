@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>abra · __LABEL__</title>
+  <link rel="stylesheet" href="__BASE__/style.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <script src="https://unpkg.com/htmx.org@1.9.12" integrity="sha384-ujb1lZYygJmzgSwoxRggbCHcjc0rB2XoQrxeTUQyRjrOnlCoYta87iKBWq3EsdM2" crossorigin="anonymous"></script>
+</head>
+<body class="__BODY_CLASS__">
+  <nav class="topnav">
+    <a href="__BASE__/" class="nav" aria-label="Categories" title="Categories"><i class="fa-solid fa-folder-tree"></i></a>
+    <a href="__BASE__/bindings/" class="nav" aria-label="Bindings" title="Bindings"><i class="fa-solid fa-list"></i></a>
+    <a href="__BASE__/recent/" class="nav" aria-label="Recent" title="Recent"><i class="fa-solid fa-clock-rotate-left"></i></a>
+    <a href="#" class="nav" onclick="if(document.body.classList.contains('editing')){document.body.classList.remove('editing');return false}history.back();return false" aria-label="back"><i class="fa-solid fa-arrow-left"></i></a>
+    <button type="button" class="nav add-component write-only"
+            hx-get="__BASE__/components/chooser"
+            hx-target="#modal-slot"
+            hx-swap="innerHTML"
+            aria-label="add a component"><i class="fa-solid fa-puzzle-piece"></i></button>
+    <span id="topnav-installed"
+          hx-get="__BASE__/components/menu"
+          hx-trigger="load"
+          hx-swap="innerHTML"></span>
+    <span class="spacer"></span>
+    <button type="button" class="nav" data-ui-pref="ui.show-codes" aria-label="show codes"><i class="fa-solid fa-hashtag"></i></button>
+    <button type="button" class="nav edit-toggle"
+            onclick="document.body.classList.toggle('editing')" aria-label="edit"><i class="fa-solid fa-pen"></i></button>
+  </nav>
+
+  <div class="page">
+    <header>
+      <h1>__LABEL__</h1>
+      <p class="muted"><code class="cat-code-line">__CODE__</code> · __PARENT_LINK__</p>
+    </header>
+
+    <main>
+      <div id="flash" aria-live="polite"></div>
+
+      <section class="cat-subtree">
+        <h2 class="muted small-cap">Subcategories</h2>
+        __SUBTREE__
+      </section>
+
+      <section class="cat-bindings">
+        <h2 class="muted small-cap">Bindings under this category</h2>
+        <div id="binding-list"
+             hx-get="__BASE__/bindings/list?catcode=__CODE__"
+             hx-trigger="load"
+             hx-swap="innerHTML">
+          <p class="muted">Loading…</p>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <p class="muted">
+        <a href="https://github.com/Cooperation-org">abra</a> ·
+        view subsystem
+      </p>
+    </footer>
+  </div>
+  <div id="modal-slot"></div>
+  <script src="__BASE__/edit.js"></script>
+</body>
+</html>
