@@ -146,6 +146,11 @@ def db_delete(code: str) -> None:
 # Default scope is configurable; future change is a scope picker in the UI.
 SCOPE = os.getenv("ABRA_VIEW_SCOPE", "golda")
 
+# Writer URI for this user. Mirrors the AbraWriter default so view-side
+# signals (e.g. user_signal scores) share the same identity as binding
+# writes. Real auth replaces this with the actual logged-in user URI.
+USER_URI = os.getenv("ABRA_WRITER_URI", f"urn:abra:local:{os.getenv('USER', 'golda')}")
+
 # The catcode under which the home tree renders by default. Today's
 # convention: `a001` ("version 0") holds the user's top-level subtrees
 # (golda, gitonga, linkedtrust, ...). Reserved roots (`01` Dewey, `02`
@@ -315,22 +320,35 @@ def db_top_names(q: str | None, catcode: str | None, label: str | None = None,
             )
         """
         args.append(catcode + "%")
+    # LEFT JOIN user_signal so user-set drag order (score_kind='long')
+    # wins when present; falls back to binding-count + most-recent.
     sql = f"""
         SELECT b.name,
                COUNT(*) AS n,
                MAX(COALESCE(b.source_date, b.created_at::date))::text AS most_recent,
                (SELECT qualifier FROM bindings
                 WHERE scope = %s AND name = b.name AND qualifier IS NOT NULL
-                ORDER BY COALESCE(source_date, created_at::date) DESC NULLS LAST LIMIT 1) AS teaser
+                ORDER BY COALESCE(source_date, created_at::date) DESC NULLS LAST LIMIT 1) AS teaser,
+               MAX(us.value) AS sig_value
         FROM bindings b
+        LEFT JOIN user_signal us
+          ON us.user_uri  = %s
+         AND us.scope     = b.scope
+         AND us.name      = b.name
+         AND us.score_kind = 'long'
         WHERE b.scope = %s {where}
         GROUP BY b.name
-        ORDER BY n DESC, most_recent DESC NULLS LAST
+        ORDER BY sig_value DESC NULLS LAST, n DESC, most_recent DESC NULLS LAST
         LIMIT {int(limit)}
     """
+    # SQL above expects: %s for teaser-subquery scope, then USER_URI for the
+    # user_signal join, then the outer scope used by the WHERE clause,
+    # then args already collected for q/label/catcode filters.
+    full_args = [SCOPE, USER_URI, SCOPE, *args[2:]]
     with conn() as c, c.cursor() as cur:
-        cur.execute(sql, args)
-        return cur.fetchall()
+        cur.execute(sql, full_args)
+        # Drop sig_value before returning — callers expect 4 columns.
+        return [row[:4] for row in cur.fetchall()]
 
 
 def db_catcode_label(code: str) -> str | None:
@@ -872,6 +890,26 @@ def linkify(text: str) -> str:
     return "".join(out)
 
 
+def _resolve_uri(target_ref: str) -> str | None:
+    """Resolve a non-http URI target to a real URL when we know the
+    provider. Currently hardcoded for the live LinkedTrust deployment;
+    will move into sources.yaml when its scheme entries carry per-path
+    URL templates."""
+    # Odoo CRM contacts: crm:odoo/contact/<id> → Odoo deep link.
+    m = re.fullmatch(r"crm:odoo/contact/(\d+)", target_ref)
+    if m:
+        cid = m.group(1)
+        return (
+            f"https://crm.linkedtrust.us/web#id={cid}"
+            "&model=res.partner&view_type=form"
+        )
+    # Taiga: tasks:taiga/issue/<id> → Marten board (the team's Taiga UI).
+    m = re.fullmatch(r"tasks:taiga/issue/(\d+)", target_ref)
+    if m:
+        return f"https://marten.linkedtrust.us/board?story={m.group(1)}"
+    return None
+
+
 def render_target(target_type: str, target_ref: str) -> str:
     """A binding's target rendered usable: http(s) becomes a link, name
     becomes an in-app link to that name's bindings, content becomes an
@@ -892,8 +930,17 @@ def render_target(target_type: str, target_ref: str) -> str:
                 f'<a href="{esc(target_ref)}" target="_blank" '
                 f'rel="noopener noreferrer">{esc(target_ref)}</a>'
             )
-        # Non-http URIs (crm:, tasks:, did:, file:) — show plainly until
-        # the pointer-scheme registry lands and we can resolve them.
+        # Known non-http URI schemes get resolved to a clickable link.
+        # Pointer-scheme registry resolution (sources.yaml) can take
+        # over once it carries a per-scheme URL template; until then,
+        # the well-known providers are hardcoded so the data is at
+        # least navigable.
+        resolved = _resolve_uri(target_ref)
+        if resolved:
+            return (
+                f'<a href="{esc(resolved)}" target="_blank" '
+                f'rel="noopener noreferrer">{esc(target_ref)}</a>'
+            )
         return f'<span class="uri">{esc(target_ref)}</span>'
     if target_type == "text":
         return f'<span class="text-target">{esc(target_ref)}</span>'
@@ -915,9 +962,10 @@ def binding_list_html(rows: list[tuple], q: str | None,
         teaser_html = f'<span class="teaser">{esc(teaser)}</span>' if teaser else ""
         items.append(
             f'<li>'
+            f'<span class="drag-handle" aria-label="drag to reorder"><i class="fa-solid fa-grip-vertical"></i></span>'
             f'<details class="name-card">'
             f'<summary>'
-            f'<span class="name-text">{esc(name)}</span>'
+            f'<a class="name-text" href="{u(f"/bindings/?q={esc(name)}")}">{esc(name)}</a>'
             f'{teaser_html}'
             f'<span class="meta">{n}× · {esc(date_str)}</span>'
             f'</summary>'
@@ -1091,6 +1139,9 @@ class Handler(BaseHTTPRequestHandler):
         if m and method == "DELETE":
             bid = int(m.group(1))
             return lambda: (db_delete_binding(bid) or "")
+        # Drag-to-reorder: persists per-name 'long' scores in user_signal.
+        if method == "POST" and path == "/signals/reorder":
+            return self._post_reorder
         m_name = re.fullmatch(r"/names/([^/]{1,200})/?", path)
         if m_name and method == "GET":
             from urllib.parse import unquote
@@ -1318,6 +1369,26 @@ class Handler(BaseHTTPRequestHandler):
         if db_get(code) is None:
             return ""
         db_delete(code)
+        return ""
+
+    def _post_reorder(self) -> str:
+        """Persist a per-user 'long' score per name based on drag order.
+        Body: {"names": ["a", "b", "c"]} where index 0 is the most
+        important. Writes value = (N - index) so DESC sort matches order."""
+        length = int(self.headers.get("Content-Length", "0") or "0")
+        raw = self.rfile.read(length).decode("utf-8") if length else "{}"
+        try:
+            data = _json.loads(raw)
+        except Exception:
+            raise FormError("invalid json")
+        names = data.get("names") or []
+        if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
+            raise FormError("names must be a list of strings")
+        sys.path.insert(0, str(ROOT / "impl" / "pgvector"))
+        import signals as _signals  # type: ignore
+        total = len(names)
+        for i, name in enumerate(names):
+            _signals.set_score(USER_URI, SCOPE, name, "long", float(total - i))
         return ""
 
     def _post_view_text(self, key: str) -> str:

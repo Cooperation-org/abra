@@ -629,6 +629,23 @@ body.editing .item-edit-toggle { color: var(--brand); }
    stay visible always. */
 body:not(.editing) .write-only { display: none !important; }
 
+/* Drag-to-reorder cues on the bindings list (active in edit mode). */
+ul.binding-list > li { display: flex; align-items: center; gap: 0.5rem; }
+ul.binding-list > li > .name-card { flex: 1; min-width: 0; }
+.drag-handle {
+  display: none;
+  color: var(--muted);
+  cursor: grab;
+  padding: 0 6px;
+  touch-action: none;
+}
+.drag-handle:active { cursor: grabbing; color: var(--ink); }
+body.editing .drag-handle { display: inline-flex; }
+.drag-ghost {
+  opacity: 0.4;
+  background: var(--brand-soft);
+}
+
 /* Per-binding delete (visible only in edit mode). */
 .bind-delete {
   background: transparent;
