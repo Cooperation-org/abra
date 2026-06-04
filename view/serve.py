@@ -962,6 +962,7 @@ def binding_list_html(rows: list[tuple], q: str | None,
         teaser_html = f'<span class="teaser">{esc(teaser)}</span>' if teaser else ""
         items.append(
             f'<li>'
+            f'<span class="drag-handle" aria-label="drag to reorder"><i class="fa-solid fa-grip-vertical"></i></span>'
             f'<details class="name-card">'
             f'<summary>'
             f'<a class="name-text" href="{u(f"/bindings/?q={esc(name)}")}">{esc(name)}</a>'

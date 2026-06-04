@@ -81,6 +81,7 @@
           disabled: !document.body.classList.contains('editing'),
           animation: 150,
           ghostClass: 'drag-ghost',
+          handle: '.drag-handle',
           onEnd: function () {
             var names = Array.from(list.querySelectorAll('li .name-text'))
                              .map(function (s) { return s.textContent; });
