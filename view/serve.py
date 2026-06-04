@@ -460,31 +460,43 @@ def apply_view_texts(html: str, overrides: dict[str, str]) -> str:
 
 def db_recent_content(limit: int = 50, q: str | None = None,
                       catcode: str | None = None) -> list[dict]:
-    """Most-recent content blobs in the active scope. Two paths:
-      - Unfiltered: blobs reachable via a binding (so the unfiltered
-        feed reflects what the user has actually named/related, not the
-        full document pile).
-      - Catcode-filtered: blobs whose catcode array sits under the
-        subtree, regardless of whether anything binds them — the
-        catcode itself is the user's act of placement.
-    Each row carries the names (if any) bound to it for display."""
-    args: list = [SCOPE]
-    where = ""
-    if q:
-        where += " AND c.content ILIKE %s"
-        args.append(f"%{q}%")
+    """Most-recent content blobs in the active scope.
+
+    A content blob counts as 'under' a catcode subtree if EITHER the
+    content row carries that catcode (legacy or array column) OR any
+    binding pointing at the content carries that catcode. Bindings
+    are the dominant placement path (~97% of content is catcoded via
+    bindings only), so a filter that ignored them would silently hide
+    most of the data.
+
+    Unfiltered: requires an inbound binding so the feed reflects the
+    user's named/related items rather than the full raw import pile.
+    """
+    placeholders: list = []
     if catcode:
-        # Catcode filter: subtree match on either column variant.
+        prefix = catcode + "%"
         reach_clause = """
-            EXISTS (
-                SELECT 1 FROM unnest(COALESCE(c.catcodes, ARRAY[c.catcode])) cc
+            (
+              EXISTS (
+                SELECT 1 FROM bindings b
+                WHERE b.scope = %s
+                  AND b.target_type = 'content'
+                  AND b.target_ref = c.id::text
+                  AND EXISTS (
+                    SELECT 1
+                    FROM unnest(COALESCE(b.catcodes, ARRAY[b.catcode])) bc
+                    WHERE bc LIKE %s
+                  )
+              )
+              OR EXISTS (
+                SELECT 1
+                FROM unnest(COALESCE(c.catcodes, ARRAY[c.catcode])) cc
                 WHERE cc LIKE %s
+              )
             )
         """
-        args.append(catcode + "%")
+        placeholders.extend([SCOPE, prefix, prefix])
     else:
-        # No filter: require an inbound binding so we don't flood the
-        # feed with raw imports.
         reach_clause = """
             EXISTS (
                 SELECT 1 FROM bindings b
@@ -493,7 +505,13 @@ def db_recent_content(limit: int = 50, q: str | None = None,
                   AND b.target_ref = c.id::text
             )
         """
-        args.insert(1, SCOPE)
+        placeholders.append(SCOPE)
+
+    where = ""
+    if q:
+        where += " AND c.content ILIKE %s"
+        placeholders.append(f"%{q}%")
+
     sql = f"""
         SELECT c.id, c.source_file, c.note_date::text, c.content,
                c.created_at::text,
@@ -508,7 +526,8 @@ def db_recent_content(limit: int = 50, q: str | None = None,
                   c.id DESC
          LIMIT {int(limit)}
     """
-    full_args = [SCOPE, *args[1:]]
+    # Leading %s is the names subquery's scope; reach + q follow.
+    full_args = [SCOPE, *placeholders]
     with conn() as c, c.cursor() as cur:
         cur.execute(sql, full_args)
         cols = [d[0] for d in cur.description]
