@@ -1033,7 +1033,7 @@ def recent_feed_html(items: list[dict]) -> str:
     """Reverse-chrono feed of content blobs. Each entry: date, source,
     body (linkified URLs), names this blob is bound to (as links)."""
     if not items:
-        return '<p class="muted">No recent content.</p>'
+        return ""  # Zero app noise.
     parts: list[str] = []
     for r in items:
         cid = r["id"]
@@ -1470,10 +1470,10 @@ class Handler(BaseHTTPRequestHandler):
             if not kids:
                 return ""
             return "".join(li_html(cc, ll, render(cc)) for cc, ll in kids)
+        # Zero app noise: empty when there are no subcategories.
         subtree = (
             f'<ul class="tree">{render(code)}</ul>'
-            if by_parent.get(code) else
-            '<p class="muted">No subcategories.</p>'
+            if by_parent.get(code) else ""
         )
         # Parent breadcrumb link (or "top" when at the home root)
         with conn() as c, c.cursor() as cur:

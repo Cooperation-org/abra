@@ -32,26 +32,17 @@
   <div class="page">
     <header>
       <h1>__LABEL__</h1>
-      <p class="muted"><code class="cat-code-line">__CODE__</code> · __PARENT_LINK__</p>
+      <p class="muted"><span class="code">__CODE__</span> · __PARENT_LINK__</p>
     </header>
 
     <main>
       <div id="flash" aria-live="polite"></div>
-
-      <section class="cat-subtree">
-        <h2 class="muted small-cap">Subcategories</h2>
-        __SUBTREE__
-      </section>
-
-      <section class="cat-bindings">
-        <h2 class="muted small-cap">Bindings under this category</h2>
-        <div id="binding-list"
-             hx-get="__BASE__/bindings/list?catcode=__CODE__"
-             hx-trigger="load"
-             hx-swap="innerHTML">
-          <p class="muted">Loading…</p>
-        </div>
-      </section>
+      __SUBTREE__
+      <div id="binding-list"
+           hx-get="__BASE__/bindings/list?catcode=__CODE__"
+           hx-trigger="load"
+           hx-swap="innerHTML">
+      </div>
     </main>
 
     <footer>
