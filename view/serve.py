@@ -784,10 +784,9 @@ def component_chooser_html() -> str:
             'trust to make them installable here.</p>'
             '</div></div>'
         )
-    # Tags currently installed → render grayed out, unclickable. One
-    # install per tag; the per-component page's danger-zone is where
-    # uninstall lives.
-    installed_tags = {c["scheme"] for c in db_list_components()}
+    # Tags currently installed → render grayed out plus a red minus
+    # to uninstall from here. One install per tag.
+    installed_by_tag = {c["scheme"]: c for c in db_list_components()}
     cards = []
     for tag, c in catalog.items():
         icon = c.get("icon") or ""
@@ -797,7 +796,16 @@ def component_chooser_html() -> str:
         )
         title = c.get("name") or tag
         desc = c.get("description") or ""
-        if tag in installed_tags:
+        if tag in installed_by_tag:
+            inst = installed_by_tag[tag]["id"]
+            # Uninstall + re-render chooser inline. The DELETE returns
+            # empty; the after-request handler refetches the chooser so
+            # the card flips back to installable in one user click.
+            refresh_chooser = (
+                f"if(event.detail.successful) htmx.ajax('GET', "
+                f"'{u('/components/chooser')}', "
+                f"{{target:'#modal-slot', swap:'innerHTML'}});"
+            )
             cards.append(
                 f'<div class="chooser-card installed" aria-disabled="true" title="already installed">'
                 f'{icon_html}'
@@ -805,6 +813,13 @@ def component_chooser_html() -> str:
                 f'<span class="chooser-title">{esc(title)}</span>'
                 f'<span class="chooser-desc">{esc(desc)}</span>'
                 f'</span>'
+                f'<button type="button" class="chooser-uninstall"'
+                f' hx-delete="{u(f"/components/{esc(inst)}")}"'
+                f' hx-confirm="Uninstall this component?"'
+                f' hx-target="#modal-slot" hx-swap="innerHTML"'
+                f' hx-on::after-request="{refresh_chooser}"'
+                f' aria-label="uninstall">'
+                f'<i class="fa-solid fa-circle-minus"></i></button>'
                 f'</div>'
             )
         else:
@@ -928,7 +943,7 @@ def component_page_html(inst: str) -> str:
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>abra · {esc(name)}</title>
-  <link rel="stylesheet" href="{BASE}/style.css?v=4">
+  <link rel="stylesheet" href="{BASE}/style.css?v=5">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
   <script src="https://unpkg.com/htmx.org@1.9.12" integrity="sha384-ujb1lZYygJmzgSwoxRggbCHcjc0rB2XoQrxeTUQyRjrOnlCoYta87iKBWq3EsdM2" crossorigin="anonymous"></script>
 </head>
