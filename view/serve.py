@@ -964,7 +964,7 @@ def binding_list_html(rows: list[tuple], q: str | None,
             f'<li>'
             f'<details class="name-card">'
             f'<summary>'
-            f'<span class="name-text">{esc(name)}</span>'
+            f'<a class="name-text" href="{u(f"/bindings/?q={esc(name)}")}">{esc(name)}</a>'
             f'{teaser_html}'
             f'<span class="meta">{n}× · {esc(date_str)}</span>'
             f'</summary>'
