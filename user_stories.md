@@ -120,4 +120,50 @@ current category.
 > those is to be able to create a reminder for myself.
 
 ---
+
+## 3. Goals: category-level task-tracker linkage, make-task-from-goal action
+
+**TLDR:** Same architecture as #2, different connector. The **goals**
+category has a per-user capability to connect to a task subsystem. In
+Golda's specific case, that's the **Marten task creator** (her
+Taiga instance) and a specific project there (cash tracker). The
+item-context action: from one goal's view, turn it into a task in
+the configured tracker.
+
+**Why this matters for the design:** it's the second concrete
+instance of the same pattern from story #2. That increases
+confidence the per-(user, catcode) capability model is the right
+abstraction, not just a one-off for contacts/CRM. Generic shape:
+
+- **Category** (catcode) is universal in abra.
+- **Capability bound to that category** is per-user config:
+  `(user, catcode) → [capability-key, …]` plus any per-capability
+  config (which CRM, which board, which project).
+- **Item-context action** is provided by a web component whose
+  schemes match an enabled capability for the current category.
+
+Goals → tasks differs from contacts → CRM in one detail: the
+specific project (cash tracker) is more granular than "this CRM."
+So per-capability config needs a slot for `project_id` /
+`board_id` / similar, not just a binary on/off.
+
+**Open shape questions** (added to those in #2):
+- Per-capability config: where do the project/board/scope identifiers
+  go? Likely the same `user_config` row carrying capability =
+  enabled, with additional keys like `target_project_id`.
+- Does the create-task action default to the configured project, or
+  prompt every time? Probably default + optional override.
+
+**Golda, verbatim (2026-06-04, walking):**
+
+> And then similarly, not involving the contact but involving the
+> goals that we created in another session, those ones maybe should
+> have a connection to a task subsystem, which in my case is the
+> Marten task creator, which happens to be on the same server. So
+> in my particular case, I would like things under the goals
+> category to be connected to a cash tracker project in Marten and
+> to be able to make tasks out of the goals. So that's another
+> category that might have a special capability.
+
+---
 </content>
