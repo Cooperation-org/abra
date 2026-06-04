@@ -890,6 +890,26 @@ def linkify(text: str) -> str:
     return "".join(out)
 
 
+def _resolve_uri(target_ref: str) -> str | None:
+    """Resolve a non-http URI target to a real URL when we know the
+    provider. Currently hardcoded for the live LinkedTrust deployment;
+    will move into sources.yaml when its scheme entries carry per-path
+    URL templates."""
+    # Odoo CRM contacts: crm:odoo/contact/<id> → Odoo deep link.
+    m = re.fullmatch(r"crm:odoo/contact/(\d+)", target_ref)
+    if m:
+        cid = m.group(1)
+        return (
+            f"https://crm.linkedtrust.us/web#id={cid}"
+            "&model=res.partner&view_type=form"
+        )
+    # Taiga: tasks:taiga/issue/<id> → Marten board (the team's Taiga UI).
+    m = re.fullmatch(r"tasks:taiga/issue/(\d+)", target_ref)
+    if m:
+        return f"https://marten.linkedtrust.us/board?story={m.group(1)}"
+    return None
+
+
 def render_target(target_type: str, target_ref: str) -> str:
     """A binding's target rendered usable: http(s) becomes a link, name
     becomes an in-app link to that name's bindings, content becomes an
@@ -910,8 +930,17 @@ def render_target(target_type: str, target_ref: str) -> str:
                 f'<a href="{esc(target_ref)}" target="_blank" '
                 f'rel="noopener noreferrer">{esc(target_ref)}</a>'
             )
-        # Non-http URIs (crm:, tasks:, did:, file:) — show plainly until
-        # the pointer-scheme registry lands and we can resolve them.
+        # Known non-http URI schemes get resolved to a clickable link.
+        # Pointer-scheme registry resolution (sources.yaml) can take
+        # over once it carries a per-scheme URL template; until then,
+        # the well-known providers are hardcoded so the data is at
+        # least navigable.
+        resolved = _resolve_uri(target_ref)
+        if resolved:
+            return (
+                f'<a href="{esc(resolved)}" target="_blank" '
+                f'rel="noopener noreferrer">{esc(target_ref)}</a>'
+            )
         return f'<span class="uri">{esc(target_ref)}</span>'
     if target_type == "text":
         return f'<span class="text-target">{esc(target_ref)}</span>'
