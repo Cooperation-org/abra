@@ -146,6 +146,11 @@ def db_delete(code: str) -> None:
 # Default scope is configurable; future change is a scope picker in the UI.
 SCOPE = os.getenv("ABRA_VIEW_SCOPE", "golda")
 
+# Writer URI for this user. Mirrors the AbraWriter default so view-side
+# signals (e.g. user_signal scores) share the same identity as binding
+# writes. Real auth replaces this with the actual logged-in user URI.
+USER_URI = os.getenv("ABRA_WRITER_URI", f"urn:abra:local:{os.getenv('USER', 'golda')}")
+
 # The catcode under which the home tree renders by default. Today's
 # convention: `a001` ("version 0") holds the user's top-level subtrees
 # (golda, gitonga, linkedtrust, ...). Reserved roots (`01` Dewey, `02`
@@ -315,22 +320,35 @@ def db_top_names(q: str | None, catcode: str | None, label: str | None = None,
             )
         """
         args.append(catcode + "%")
+    # LEFT JOIN user_signal so user-set drag order (score_kind='long')
+    # wins when present; falls back to binding-count + most-recent.
     sql = f"""
         SELECT b.name,
                COUNT(*) AS n,
                MAX(COALESCE(b.source_date, b.created_at::date))::text AS most_recent,
                (SELECT qualifier FROM bindings
                 WHERE scope = %s AND name = b.name AND qualifier IS NOT NULL
-                ORDER BY COALESCE(source_date, created_at::date) DESC NULLS LAST LIMIT 1) AS teaser
+                ORDER BY COALESCE(source_date, created_at::date) DESC NULLS LAST LIMIT 1) AS teaser,
+               MAX(us.value) AS sig_value
         FROM bindings b
+        LEFT JOIN user_signal us
+          ON us.user_uri  = %s
+         AND us.scope     = b.scope
+         AND us.name      = b.name
+         AND us.score_kind = 'long'
         WHERE b.scope = %s {where}
         GROUP BY b.name
-        ORDER BY n DESC, most_recent DESC NULLS LAST
+        ORDER BY sig_value DESC NULLS LAST, n DESC, most_recent DESC NULLS LAST
         LIMIT {int(limit)}
     """
+    # SQL above expects: %s for teaser-subquery scope, then USER_URI for the
+    # user_signal join, then the outer scope used by the WHERE clause,
+    # then args already collected for q/label/catcode filters.
+    full_args = [SCOPE, USER_URI, SCOPE, *args[2:]]
     with conn() as c, c.cursor() as cur:
-        cur.execute(sql, args)
-        return cur.fetchall()
+        cur.execute(sql, full_args)
+        # Drop sig_value before returning — callers expect 4 columns.
+        return [row[:4] for row in cur.fetchall()]
 
 
 def db_catcode_label(code: str) -> str | None:
@@ -1091,6 +1109,9 @@ class Handler(BaseHTTPRequestHandler):
         if m and method == "DELETE":
             bid = int(m.group(1))
             return lambda: (db_delete_binding(bid) or "")
+        # Drag-to-reorder: persists per-name 'long' scores in user_signal.
+        if method == "POST" and path == "/signals/reorder":
+            return self._post_reorder
         m_name = re.fullmatch(r"/names/([^/]{1,200})/?", path)
         if m_name and method == "GET":
             from urllib.parse import unquote
@@ -1318,6 +1339,26 @@ class Handler(BaseHTTPRequestHandler):
         if db_get(code) is None:
             return ""
         db_delete(code)
+        return ""
+
+    def _post_reorder(self) -> str:
+        """Persist a per-user 'long' score per name based on drag order.
+        Body: {"names": ["a", "b", "c"]} where index 0 is the most
+        important. Writes value = (N - index) so DESC sort matches order."""
+        length = int(self.headers.get("Content-Length", "0") or "0")
+        raw = self.rfile.read(length).decode("utf-8") if length else "{}"
+        try:
+            data = _json.loads(raw)
+        except Exception:
+            raise FormError("invalid json")
+        names = data.get("names") or []
+        if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
+            raise FormError("names must be a list of strings")
+        sys.path.insert(0, str(ROOT / "impl" / "pgvector"))
+        import signals as _signals  # type: ignore
+        total = len(names)
+        for i, name in enumerate(names):
+            _signals.set_score(USER_URI, SCOPE, name, "long", float(total - i))
         return ""
 
     def _post_view_text(self, key: str) -> str:
