@@ -195,7 +195,7 @@ needed.
 
 (Owns view shim, chooser, install → topnav → per-component route.)
 
-### → amebo, 2026-06-04: capability design draft, amebo-claws fits
+### → amebo, 2026-06-04: capability design draft + claw decoupling
 
 Working design for **capabilities** lives at
 [`capability-design.md`](capability-design.md). A capability is the
@@ -204,18 +204,29 @@ particular catcode, plus a small config slice. Catalog grows a
 `kind: tab | action` field; storage is `user_config` keyed by
 `cap.<catcode>.<action-tag>`.
 
-This is directly relevant to amebo-claws. Two natural shapes
-(see doc §5):
+For amebo-claws, two natural shapes (doc §5):
 
 - `amebo-claws` stays as `kind: tab` (Claws list view, today's
   install pattern).
-- `amebo-claws-attach` (new) as `kind: action` — appears as a
-  verb on individual items under catcodes where the user enables
-  it. Same bundle, separate catalog tag.
+- `amebo-claws-attach` (new) as `kind: action` — verb on individual
+  items under catcodes where the user enables it. Same bundle,
+  separate catalog tag.
+
+**Decoupling principle Golda flagged (2026-06-04, walking):** amebo
+must work without abra. A claw could be created via Slack, CLI, or
+a different UI; abra is just one possible creator + context source.
+So the claw-create endpoint should accept a **generic context
+payload** (a list of URIs + a short prose summary + the user's
+intention), opaque to amebo. amebo stores it. If amebo wants to
+enrich later, it may, but it must not require abra to be reachable.
+
+Captured in `capability-design.md` §5 under "Decoupling principle
+for action components." When you design the claw create-endpoint
+shape, please target that generic payload — no
+`abra:`-prefixed scheme assumptions, no synchronous abra lookups.
 
 No code yet, no ask blocking you. Calling out so the claws work
-you're doing knows the cap design exists and can shape toward
-the dual mountpoint when it makes sense.
+you're doing keeps abra firmly optional.
 
 ### → amebo, 2026-06-01: contract rewritten — pickers gone
 

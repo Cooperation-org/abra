@@ -175,12 +175,50 @@ view if state changed.
 - enablement: user opts in on whichever catcodes they want claws to be
   attachable on (could be all of them, could be just goals + tasks)
 - item view: "Attach claw" button
-- click: prompt for intention, amebo schedules
+- click: prompt for intention, abra hands amebo the *context* (a
+  generic payload of URIs + a short text summary), amebo accepts it
+  and schedules. amebo never asks abra for more; if it needs to enrich
+  later, it can but does not depend on abra being reachable.
 
 Note that `amebo-claws` (the `kind: tab` Claws view) and
 `amebo-claws-attach` (the `kind: action` verb) are **separate
 catalog entries** pointing at the same bundle. Same JS, two
 mountpoints. Cleaner than overloading one tag.
+
+#### Decoupling principle for action components
+
+**An action component must not require its target provider to know
+about abra.** abra is one possible source of context, one possible
+UI, one possible creator. The provider must accept a generic payload
+and work the same if the same payload arrived from a CLI, a Slack
+hook, or a different UI.
+
+What the provider's create-endpoint accepts:
+
+- An **intention** (short text the user typed at activation time)
+- An optional **context payload**: a list of URIs and a short prose
+  summary. Both are opaque to the provider; it stores them, and may
+  later resolve them if it has resolvers for those schemes.
+- Provenance: who created this (URI) and when.
+
+What the provider must NOT do:
+
+- Pull data from abra synchronously to function
+- Require abra-specific scheme prefixes in the URI list
+- Fail if abra is offline
+
+What abra (when it is the caller) does:
+
+- Collects the item's binding URIs (`crm:odoo/contact/113`,
+  `amebo:goal/42`, etc.) and a one-line prose summary derived from
+  bindings/content.
+- POSTs that as the context payload alongside the user's intention.
+- Done. No subsequent abra-side polling.
+
+This keeps the same provider (amebo claws) usable when the user
+creates a claw from somewhere other than abra (a Slack DM, a CLI,
+or a future UI), and keeps amebo's internal data complete without
+back-references to abra.
 
 ---
 
