@@ -629,6 +629,34 @@ body.editing .item-edit-toggle { color: var(--brand); }
    stay visible always. */
 body:not(.editing) .write-only { display: none !important; }
 
+/* Recent feed — reverse-chrono content blobs. */
+#recent-feed { display: flex; flex-direction: column; gap: 1.25rem; }
+.feed-item {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.75rem 1rem;
+  background: var(--surface);
+}
+.feed-head {
+  display: flex;
+  gap: 0.75rem;
+  align-items: baseline;
+  font-size: 0.85rem;
+  margin-bottom: 0.5rem;
+}
+.feed-date { font-weight: 600; }
+.feed-src { font-style: italic; }
+.feed-body {
+  white-space: pre-wrap;
+  line-height: 1.5;
+}
+.feed-names {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed var(--border);
+  font-size: 0.85rem;
+}
+
 /* Drag-to-reorder cues on the bindings list (active in edit mode). */
 ul.binding-list > li { display: flex; align-items: center; gap: 0.5rem; }
 ul.binding-list > li > .name-card { flex: 1; min-width: 0; }
