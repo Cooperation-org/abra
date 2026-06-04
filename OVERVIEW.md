@@ -23,6 +23,8 @@ Abra has two subsystems with a clean boundary inside one repo: the **map** (name
 
 The view's design intent: **it feels like interacting with your own mind.** What you see on the screen reflects what you've stored — your names, your priorities, your map — phrased the way you think about them, not the way the system stores them. Technical addresses (catcodes) are hidden by default. Words and images on screen are for the user, not for the app. **Everything visible is editable by the user**: layout, labels, tab names, sort order, which columns show, which categories serve as portals. Per-user, rich config; nothing the user sees is baked into the code.
 
+**Zero app noise rule.** In any abra view surface, every visible string is **user content or user-editable** — a pet name, a category label she set, a note she wrote, or an editable view-text span she can rename. **No system-generated section headers, no developer-mental-model labels** ("Subcategories", "Bindings under this category", "Recent items", etc.). If structure is needed, use spacing or borders, not labeled sections. Topnav icons and inline affordances (drag handle, delete ×, pen, +) are not noise — they are tools the user is using. The rule applies to every page: home, bindings, recent, item view, catcode view, anywhere abra renders.
+
 Abra holds the map. It does not run loops, take actions, or hold opinions.
 
 Abra is open. Any system can write; every binding carries who wrote it and when. Bindings can optionally be published out as LinkedClaims. The data is durable; implementations are not — *message-in-a-bottle*.
