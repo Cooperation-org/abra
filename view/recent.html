@@ -36,6 +36,11 @@
 
     <main>
       <div id="flash" aria-live="polite"></div>
+      <div class="feed-controls">
+        <button type="button" id="feed-toggle-all" class="feed-toggle expanded"
+                onclick="(function(b){var open=b.classList.toggle('expanded');document.querySelectorAll('#recent-feed details').forEach(function(d){d.open=open});})(this)"
+                aria-label="collapse or expand all"><i class="fa-solid fa-chevron-down"></i></button>
+      </div>
       <div id="recent-feed">__FEED__</div>
     </main>
 
