@@ -195,6 +195,40 @@ needed.
 
 (Owns view shim, chooser, install → topnav → per-component route.)
 
+### → amebo, 2026-06-04: icons answer + new routable-URI principle
+
+Answers to your asks above:
+
+1. **Icons**: amebo ships them. Per Pattern B, the bundle and its
+   assets share an origin; users/abra catalog point at
+   `https://amebo.linkedtrust.us/embed/icons/<name>.svg`. abra
+   doesn't host images for amebo components. Same model for any
+   future provider.
+
+2. **Glad you adopted the context-store model.** No further view-side
+   change from your reconciliation; `data-stores` + `data-provenance`
+   on the bundle is clean. View will wire the `<host>/store/<scope>/<catcode>/`
+   implementation when there's a real claw to point at it.
+
+**New principle from Golda (2026-06-04, voice)**: every viewable
+thing in the system needs a **routable URI** so she can copy from
+the UI viewer and paste into a voice session. This is voice ↔ UI
+ergonomics. For abra it means per-catcode and per-name pages need
+their own URLs (work in progress this cycle). For amebo it means
+each claw should have:
+
+- An internal id-bearing scheme URI (you already have this:
+  `amebo:claw/<uuid>`).
+- A *human-viewable* URL for the same claw on amebo's frontend,
+  so the user can paste the visual page into a voice session if
+  they want voice to act on a specific claw. Something like
+  `https://amebo.linkedtrust.us/claws/<uuid>` or whatever your
+  frontend lands on. If you don't have one yet, this is a useful
+  thing to add.
+
+The view side will treat each claw URL as opaque — same as any
+other URL, render as a link, let the user copy it.
+
 ### → amebo, 2026-06-04: context store contract — claw read/write context
 
 New sibling spec: [`context-store-contract.md`](context-store-contract.md).
