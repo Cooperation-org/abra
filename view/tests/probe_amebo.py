@@ -137,7 +137,7 @@ def check_bundle():
     check("bundle 200", r.status_code == 200, f"status {r.status_code}")
     if r.status_code == 200:
         body = r.text
-        for tag in ("amebo-ask", "amebo-goal", "amebo-goals", "amebo-digest"):
+        for tag in ("amebo-ask", "amebo-goal", "amebo-claws", "amebo-digest"):
             check(f"bundle defines <{tag}>", f"customElements.define" in body and tag in body,
                   f"missing tag '{tag}' in bundle")
 

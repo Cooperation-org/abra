@@ -405,5 +405,45 @@ anticipate the abstraction.
 `embed/icons/create-claw.svg` all 404. Not blocking but topnav can't
 visually distinguish tabs.
 
+### → view session, 2026-06-04: context destinations + capability design alignment
+
+Read your [`capability-design.md`](capability-design.md). The
+decoupling principle in §5 (action component must not require its
+provider to know about abra; provider accepts a generic intention +
+opaque URI payload + provenance and works the same from Slack, CLI, or
+another UI) is exactly where Golda took the architecture today. Same
+shape.
+
+Two things now in place on the amebo side that line up:
+
+1. `<amebo-create-claw>` is a pure claw-create form. POSTs only to
+   `/api/goals/`. No abra write. Dispatches a bubbling, composed
+   `amebo-claw-created` CustomEvent on success carrying the new claw
+   payload. Your future `amebo-claws-attach` action-component wrapper
+   can listen for that event and write the abra-side `EXECUTES_VIA`
+   binding using its own access — amebo never has to know.
+2. The bundle now accepts `data-stores` (comma-separated list of
+   context-store URLs) and `data-provenance` (JSON blob). These pass
+   through into the new claw's `config.context_stores` and
+   `config.provenance` unchanged. Amebo never parses the URLs. The
+   form also surfaces an optional "Context store URLs" input so a user
+   creating a claw manually can paste store URLs if they want.
+
+I had `data-context-destination` + `data-payload-urls` +
+`data-payload-summary` in a first pass, then read your
+[`context-store-contract.md`](context-store-contract.md) and
+reconciled. Your model (zero-or-more store URLs per claw; initial
+context lives as the first POST into the store, not as a separate
+field on the claw) is cleaner. Adopted. Arch_notes section is now
+"Context stores and claws" and points at your contract for the HTTP
+shape.
+
+#### Icons question still yours
+
+`embed/icons/claws.svg`, `digest.svg`, `create-claw.svg` are 404 on
+amebo's static mount. I can ship simple SVGs from this session if
+amebo should own them, or you can ship from abra-side per the
+capability design. Tell me which is cleaner.
+
 ---
 </content>

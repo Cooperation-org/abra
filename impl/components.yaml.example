@@ -17,7 +17,7 @@
 #
 #   - thin-wiring : component reads `data-up` from the host and fetches
 #                   through a proxy. List its `schemes` and `required`
-#                   attrs. Examples below: amebo-digest, amebo-goals.
+#                   attrs. Examples below: amebo-digest, amebo-claws.
 #
 #   - self-contained : component knows its own host and auth, host just
 #                      embeds the tag. `schemes: []`, `required: []`.
@@ -47,10 +47,10 @@ components:
     added_by:    "urn:abra:user/golda"
     added_at:    "2026-06-01"
 
-  amebo-goals:
-    name:        "Goals"
-    description: "All your goals — status, last activity, controls."
-    icon:        "https://amebo.linkedtrust.us/embed/icons/goals.svg"
+  amebo-claws:
+    name:        "Claws"
+    description: "All your amebo claws (computational units the Claude loop executes). Status, last activity, controls."
+    icon:        "https://amebo.linkedtrust.us/embed/icons/claws.svg"
     script:      "https://amebo.linkedtrust.us/embed/amebo.js"
     provider:    "amebo"
     schemes:     []
@@ -59,13 +59,13 @@ components:
     added_by:    "urn:abra:user/golda"
     added_at:    "2026-06-01"
 
-  amebo-create-goal:
-    name:        "Place a thought"
-    description: "Free-text capture. Amebo proposes a name, labels, and whether to make it a clawable goal."
-    icon:        "https://amebo.linkedtrust.us/embed/icons/create-goal.svg"
+  amebo-create-claw:
+    name:        "Create claw"
+    description: "Plain form to create a new amebo claw (computational unit a Claude loop executes). Pure claw-create; no abra write."
+    icon:        "https://amebo.linkedtrust.us/embed/icons/create-claw.svg"
     script:      "https://amebo.linkedtrust.us/embed/amebo.js"
     provider:    "amebo"
-    schemes:     ["amebo:intentions"]
+    schemes:     []
     required:    ["data-up"]
     integrity:   "sha384-REPLACE_ME"
     added_by:    "urn:abra:user/golda"
