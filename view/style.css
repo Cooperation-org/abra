@@ -643,9 +643,19 @@ body:not(.editing) .write-only { display: none !important; }
   display: flex;
   gap: 0.75rem;
   align-items: baseline;
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   margin-bottom: 0.5rem;
+  min-width: 0;
 }
+.feed-excerpt {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.feed-item:not([open]) > .feed-head { margin-bottom: 0; }
+.feed-date { flex-shrink: 0; }
 .feed-item > .feed-head::-webkit-details-marker { display: none; }
 .feed-item:not([open]) > .feed-head { margin-bottom: 0; }
 .feed-item:not([open]) > .feed-body,
