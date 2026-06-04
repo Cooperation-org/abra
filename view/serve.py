@@ -1192,10 +1192,13 @@ class Handler(BaseHTTPRequestHandler):
             # bare /bindings/ URL is never a flat splat of every name.
             if not catcode and not label:
                 catcode = HOME_ROOT
+            # No chip at the default home root — it's the baseline view,
+            # not a filter the user picked. Chip appears only when the
+            # user has navigated into a narrower category or a label.
             chip = ""
             if label:
                 chip = self._chip_html(label, clear_qs="")
-            elif catcode:
+            elif catcode and catcode != HOME_ROOT:
                 lbl = db_catcode_label(catcode) or catcode
                 chip = self._chip_html(lbl,
                     clear_qs="?q=" + (q or "") if q else "")
