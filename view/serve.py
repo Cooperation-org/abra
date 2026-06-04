@@ -1187,6 +1187,11 @@ class Handler(BaseHTTPRequestHandler):
             q = (params.get("q", [""])[0] or "").strip()
             catcode = (params.get("catcode", [""])[0] or "").strip()
             label = (params.get("label", [""])[0] or "").strip()
+            # Always view bindings by category. If no filter is given,
+            # default to HOME_ROOT (the user's category subtree) so the
+            # bare /bindings/ URL is never a flat splat of every name.
+            if not catcode and not label:
+                catcode = HOME_ROOT
             chip = ""
             if label:
                 chip = self._chip_html(label, clear_qs="")
