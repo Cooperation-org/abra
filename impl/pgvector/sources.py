@@ -40,14 +40,27 @@ def _sources_file_path() -> Path:
     return Path.home() / ".abra" / "sources.yaml"
 
 
-@lru_cache(maxsize=1)
+# Mtime-keyed cache (see components.py for the same pattern; lru_cache
+# outlives the file and produced stale reads in long-running processes).
+_LOAD_CACHE: dict = {"mtime": None, "data": {}}
+
+
 def load_sources() -> dict:
-    """Read and parse the sources file. Cached for the process lifetime.
+    """Read and parse the sources file. Re-reads on file mtime change.
     Returns the parsed dict; `{}` if no file exists.
     Raises ImportError if PyYAML is not installed but a file exists."""
     path = _sources_file_path()
     if not path.exists():
+        if _LOAD_CACHE["mtime"] is not None:
+            _LOAD_CACHE["mtime"] = None
+            _LOAD_CACHE["data"] = {}
         return {}
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        mtime = None
+    if _LOAD_CACHE["mtime"] == mtime:
+        return _LOAD_CACHE["data"]
     if yaml is None:
         raise ImportError(
             f"PyYAML is required to read {path}. "
@@ -57,6 +70,8 @@ def load_sources() -> dict:
         data = yaml.safe_load(f) or {}
     if not isinstance(data, dict):
         raise ValueError(f"{path} must be a YAML mapping at the top level")
+    _LOAD_CACHE["mtime"] = mtime
+    _LOAD_CACHE["data"] = data
     return data
 
 
@@ -93,9 +108,11 @@ def split_target_ref(target_ref: str) -> tuple[str, str]:
 
 
 def reset_cache() -> None:
-    """Clear the cached parse. Use after editing the file in a long-running
-    process. Tests call this between cases."""
-    load_sources.cache_clear()
+    """Clear the cached parse. Tests call this between cases. The
+    mtime-keyed cache auto-invalidates on file edits, so callers no
+    longer need to invoke this in normal operation."""
+    _LOAD_CACHE["mtime"] = None
+    _LOAD_CACHE["data"] = {}
 
 
 if __name__ == "__main__":
