@@ -909,12 +909,13 @@ def _topnav_anchor_html(comp: dict, catalog: dict) -> str:
     inst = comp["id"]
     if icon:
         icon_src = _proxify_script(icon) if "://amebo" in icon else icon
-        # If the catalog icon URL 404s, swap to a font-awesome fallback
-        # so the nav entry stays visible. amebo doesn't ship icons yet;
-        # this keeps the UI honest until it does.
+        # CSS mask so the imported SVG inherits currentColor from the
+        # topnav — matches light/dark theme. Providers author with
+        # currentColor (per amebo); here is where the host tint actually
+        # applies (img tags don't carry parent color into SVG content).
         icon_html = (
-            f'<img class="nav-icon" src="{esc(icon_src)}" alt="{esc(name)}" '
-            f'loading="lazy" onerror="this.outerHTML=&quot;<i class=\\&quot;fa-solid fa-cube\\&quot;></i>&quot;">'
+            f'<span class="nav-icon mask-icon" role="img" aria-label="{esc(name)}" '
+            f'style="--icon-url:url(&quot;{esc(icon_src)}&quot;)"></span>'
         )
     else:
         icon_html = '<i class="fa-solid fa-cube"></i>'
