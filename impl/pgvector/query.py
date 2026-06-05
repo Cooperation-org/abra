@@ -31,6 +31,7 @@ Usage:
     .venv/bin/python pgvector/query.py names eric
 """
 import os
+import re
 import sys
 import argparse
 import psycopg2
@@ -485,6 +486,105 @@ def cmd_hot(args):
     conn.close()
 
 
+def _resolve_cat_path(writer, path):
+    """Walk a slash-separated category-label path. Auto-create any segment
+    that doesn't exist yet.
+
+    The first segment must match an existing registered label (the path's
+    root). Each subsequent segment is created as a child of its parent
+    with the accumulated label (e.g. 'untp/2026' under 'untp', then
+    'untp/2026/june' under 'untp/2026'). Returns the leaf catcode.
+    """
+    parts = [p for p in path.strip('/').split('/') if p]
+    if not parts:
+        raise ValueError("empty category path")
+
+    cur = writer.conn.cursor()
+    cur.execute(
+        "SELECT catcode FROM catcode_registry WHERE label = %s",
+        (parts[0],),
+    )
+    rows = cur.fetchall()
+    cur.close()
+    if not rows:
+        raise ValueError(
+            f"no registered category labelled {parts[0]!r}. "
+            f"Register the root first, or pass --catcode <code>."
+        )
+    if len(rows) > 1:
+        codes = ", ".join(r[0] for r in rows)
+        raise ValueError(
+            f"label {parts[0]!r} is ambiguous (matches: {codes}). "
+            f"Pass --catcode <code> instead."
+        )
+    current = rows[0][0]
+    accumulated = parts[0]
+
+    for part in parts[1:]:
+        accumulated = f"{accumulated}/{part}"
+        cur = writer.conn.cursor()
+        cur.execute(
+            "SELECT catcode FROM catcode_registry "
+            "WHERE label = %s AND parent_catcode = %s",
+            (accumulated, current),
+        )
+        row = cur.fetchone()
+        cur.close()
+        if row:
+            current = row[0]
+        else:
+            child = writer.next_catcode(current)
+            writer.register_catcode(child, current, accumulated)
+            current = child
+
+    return current
+
+
+def _resolve_catcode(writer, args):
+    """Pick the catcode for this write. Prefers explicit args; prompts
+    interactively when stdin is a tty; otherwise errors out. Never silently
+    defaults — per Golda 2026-06-05, the CLI must ask, not assume."""
+    catcode_flag = getattr(args, 'catcode', None)
+    cat_flag = getattr(args, 'cat', None)
+    if catcode_flag:
+        return catcode_flag
+    if cat_flag:
+        return _resolve_cat_path(writer, cat_flag)
+    if sys.stdin.isatty():
+        sys.stderr.write(
+            "No category given. Enter a path under a registered top-level "
+            "(e.g. 'untp/2026/june') or a catcode (e.g. a00105).\n"
+            "Pass --cat or --catcode next time to skip this prompt.\n"
+        )
+        try:
+            entry = input("Category: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            sys.stderr.write("\nAborted.\n")
+            sys.exit(1)
+        if not entry:
+            sys.stderr.write("No category entered; aborting.\n")
+            sys.exit(1)
+        # Slash anywhere → label path. Otherwise: try as catcode, else label.
+        if '/' in entry:
+            return _resolve_cat_path(writer, entry)
+        cur = writer.conn.cursor()
+        cur.execute(
+            "SELECT catcode FROM catcode_registry WHERE catcode = %s",
+            (entry,),
+        )
+        row = cur.fetchone()
+        cur.close()
+        if row:
+            return entry
+        return _resolve_cat_path(writer, entry)
+    sys.stderr.write(
+        "No category given. Pass --cat <path> (e.g. 'untp/2026/june') "
+        "or --catcode <code>.\n"
+        "The CLI does not silently default.\n"
+    )
+    sys.exit(1)
+
+
 def cmd_store(args):
     """Store a content blob and bind it to a name."""
     from write_binding import AbraWriter
@@ -506,10 +606,12 @@ def cmd_store(args):
         print("No content provided. Use 'abra store <name> \"text\"' or 'abra store <name> -f file.txt'")
         sys.exit(1)
 
-    content_id = writer.store_content(source_file, content)
+    catcode = _resolve_catcode(writer, args)
+    content_id = writer.store_content(source_file, content, catcode=catcode)
     qualifier = args.qualifier or "stored via cli"
-    writer.write_binding(args.scope, args.name, "ABOUT", "content", str(content_id), qualifier=qualifier)
-    print(f"Stored content [{content_id}] and bound to {args.name} [{qualifier}]")
+    writer.write_binding(args.scope, args.name, "ABOUT", "content", str(content_id),
+                         qualifier=qualifier, catcode=catcode)
+    print(f"Stored content [{content_id}] and bound to {args.name} [{qualifier}] under {catcode}")
     writer.close()
 
 
@@ -518,12 +620,13 @@ def cmd_bind(args):
     from write_binding import AbraWriter
     writer = AbraWriter()
 
+    catcode = _resolve_catcode(writer, args)
     target_type = args.target_type or "text"
     bid = writer.write_binding(args.scope, args.name, args.rel, target_type,
-                                args.target, qualifier=args.qualifier)
+                                args.target, qualifier=args.qualifier, catcode=catcode)
     if bid:
         q = f" [{args.qualifier}]" if args.qualifier else ""
-        print(f"Created binding {bid}: {args.name} {args.rel} [{target_type}] {args.target}{q}")
+        print(f"Created binding {bid}: {args.name} {args.rel} [{target_type}] {args.target}{q} under {catcode}")
     writer.close()
 
 
@@ -703,6 +806,8 @@ def main():
     p_store.add_argument('content', nargs='?', help='Content text (or use -f)')
     p_store.add_argument('-f', '--file', help='Read content from file')
     p_store.add_argument('--qualifier', help='Qualifier for the ABOUT binding')
+    p_store.add_argument('--cat', help='Category path under a registered root, e.g. untp/2026/june. Missing segments auto-create.')
+    p_store.add_argument('--catcode', help='Use an existing catcode directly, e.g. a00105')
 
     p_bind = sub.add_parser('bind', help='Create a binding')
     p_bind.add_argument('--scope', **scope_kw)
@@ -711,6 +816,8 @@ def main():
     p_bind.add_argument('target', help='Target value')
     p_bind.add_argument('--target-type', help='Target type: text, content, uri, name (default: text)')
     p_bind.add_argument('--qualifier', help='Qualifier text')
+    p_bind.add_argument('--cat', help='Category path under a registered root, e.g. untp/2026/june. Missing segments auto-create.')
+    p_bind.add_argument('--catcode', help='Use an existing catcode directly, e.g. a00105')
 
     args = parser.parse_args()
     if not args.command:
