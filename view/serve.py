@@ -377,6 +377,31 @@ def db_catcode_label(code: str) -> str | None:
         return row[0] if row else None
 
 
+def db_ancestors(code: str) -> list[tuple[str, str]]:
+    """Ancestor (catcode, label) pairs from root → immediate parent."""
+    with conn() as c, c.cursor() as cur:
+        cur.execute(
+            """
+            WITH RECURSIVE chain AS (
+                SELECT catcode, parent_catcode, 0 AS depth
+                FROM catcode_registry WHERE catcode = %s
+                UNION ALL
+                SELECT cr.catcode, cr.parent_catcode, ch.depth + 1
+                FROM catcode_registry cr
+                JOIN chain ch ON cr.catcode = ch.parent_catcode
+                WHERE ch.parent_catcode IS NOT NULL AND ch.depth < 32
+            )
+            SELECT c.catcode, COALESCE(r.label, c.catcode)
+            FROM chain c
+            LEFT JOIN catcode_registry r ON r.catcode = c.catcode
+            WHERE c.depth > 0
+            ORDER BY c.depth DESC
+            """,
+            (code,),
+        )
+        return [(r[0], r[1]) for r in cur.fetchall()]
+
+
 # ── User-editable view chrome ────────────────────────────────────────────
 # Every visible piece of view chrome (tab text, headings, lead text, column
 # labels) is editable inline. Overrides persist in abra itself as IS-bindings
@@ -1073,9 +1098,8 @@ def render_target(target_type: str, target_ref: str) -> str:
     if not target_ref:
         return ""
     if target_type == "content":
-        # The accordion <details> is the row itself; clicking the summary
-        # opens the content below, so we don't need a scroll-anchor link.
-        return f'<span class="content-ref">note</span>'
+        # The content body is the value — col-tgt has nothing useful to add.
+        return ""
     if target_type == "name":
         from urllib.parse import quote
         href = u(f"/bindings/") + f"?q={quote(target_ref, safe='')}"
@@ -1124,6 +1148,8 @@ def binding_list_html(rows: list[tuple], q: str | None,
             f'<a class="name-text" href="{u(f"/bindings/?q={url_path_seg(name)}")}">{esc(name)}</a>'
             f'{teaser_html}'
             f'<span class="meta">{n}× · {esc(date_str)}</span>'
+            f'<button type="button" class="item-edit-toggle"'
+            f' aria-label="edit"><i class="fa-solid fa-pen"></i></button>'
             f'</summary>'
             f'<div class="detail-card" '
             f'hx-get="{href}" '
@@ -1221,7 +1247,7 @@ def name_detail_html(name: str, rows: list[dict]) -> str:
 
         cols = (
             f'<span class="col-rel">{esc(rel)}</span>'
-            f'<span class="col-qual">{esc(qual) or "—"}</span>'
+            f'<span class="col-qual">{esc(qual)}</span>'
             f'<span class="col-tgt">{render_target(target_type, target_ref)}</span>'
             f'<span class="col-date">{esc(date)}</span>'
             f'<span class="col-from">{esc(prov)}</span>'
@@ -1230,17 +1256,10 @@ def name_detail_html(name: str, rows: list[dict]) -> str:
 
         if has_content:
             ref = esc(target_ref)
-            src = esc(r.get("source_file") or "")
-            cdate = esc(r.get("note_date") or date)
             items.append(
-                f'<details class="bind-row has-content" id="content-{ref}">'
+                f'<details class="bind-row has-content" id="content-{ref}" open>'
                 f'<summary>{cols}</summary>'
                 f'<div class="content-blob">'
-                f'<header>'
-                f'<span>{cdate}</span>'
-                f'<span>{src}</span>'
-                f'<span class="muted">#{ref}</span>'
-                f'</header>'
                 f'<div class="body">{linkify(r["content"])}</div>'
                 f'</div>'
                 f'</details>'
@@ -1248,12 +1267,8 @@ def name_detail_html(name: str, rows: list[dict]) -> str:
         else:
             items.append(f'<div class="bind-row">{cols}</div>')
 
-    edit_toggle = (
-        '<button type="button" class="item-edit-toggle"'
-        ' onclick="document.body.classList.toggle(\'editing\')"'
-        ' aria-label="edit this item"><i class="fa-solid fa-pen"></i></button>'
-    )
-    return f'<div class="item-header">{edit_toggle}</div><div class="bindings">{"".join(items)}</div>'
+    container_class = "bindings single" if len(rows) == 1 else "bindings"
+    return f'<div class="{container_class}">{"".join(items)}</div>'
 
 
 # ── request handler ──────────────────────────────────────────────────────
@@ -1650,21 +1665,40 @@ class Handler(BaseHTTPRequestHandler):
             f'<ul class="tree">{render(code)}</ul>'
             if by_parent.get(code) else ""
         )
-        # Parent breadcrumb link (or "top" when at the home root)
-        with conn() as c, c.cursor() as cur:
-            cur.execute(
-                "SELECT parent_catcode FROM catcode_registry WHERE catcode = %s",
-                (code,),
+        # Parent label split on "/" so each piece is its own link to the
+        # matching ancestor catcode, plus the current page's leaf appended
+        # as its own link to the current page (reloading the page out of
+        # edit mode).
+        ancestors = db_ancestors(code)
+        if ancestors:
+            parent_code, parent_label = ancestors[-1]
+            pieces = parent_label.split("/")
+            if len(pieces) > 1:
+                ancestor_by_label = {al: ac for ac, al in ancestors}
+                links = []
+                for i, piece in enumerate(pieces):
+                    prefix_label = "/".join(pieces[: i + 1])
+                    ac = ancestor_by_label.get(prefix_label)
+                    if ac:
+                        links.append(
+                            f'<a href="{u(f"/cat/{url_path_seg(ac)}/")}">'
+                            f'{esc(piece)}</a>'
+                        )
+                    else:
+                        links.append(esc(piece))
+            else:
+                links = [
+                    f'<a href="{u(f"/cat/{url_path_seg(parent_code)}/")}">'
+                    f'{esc(parent_label)}</a>'
+                ]
+            current_leaf = label.split("/")[-1]
+            links.append(
+                f'<a href="{u(f"/cat/{url_path_seg(code)}/")}">'
+                f'{esc(current_leaf)}</a>'
             )
-            row = cur.fetchone()
-            parent = row[0] if row else None
-        if parent:
-            plabel = db_catcode_label(parent) or parent
-            parent_link = (
-                f'<a href="{u(f"/cat/{url_path_seg(parent)}/")}">{esc(plabel)}</a>'
-            )
+            parent_link = "/".join(links)
         else:
-            parent_link = '<a href="{0}/">top</a>'.format(BASE)
+            parent_link = f'<a href="{BASE}/">top</a>'
         return apply_view_texts(
             (HERE / "cat.html").read_text()
             .replace("__BASE__", BASE)

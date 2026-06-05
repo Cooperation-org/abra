@@ -55,6 +55,7 @@
       el.setAttribute("contenteditable", editing ? "plaintext-only" : "false");
       el.spellcheck = editing;
     });
+    if (sortable) sortable.option("disabled", !editing);
   }
 
   document.addEventListener("DOMContentLoaded", refresh);
@@ -62,6 +63,61 @@
   // Observe class changes on body so toggling "editing" updates contenteditable.
   new MutationObserver(refresh).observe(document.body, {
     attributes: true, attributeFilter: ["class"],
+  });
+
+  // ESC exits edit mode. Lets the user bail out without hunting the toggle.
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && document.body.classList.contains("editing")) {
+      document.body.classList.remove("editing");
+      if (document.activeElement && document.activeElement.blur) {
+        document.activeElement.blur();
+      }
+    }
+  });
+
+  // Pen toggle (.item-edit-toggle) flips body.editing. Event-delegated so
+  // pens added later (via htmx swap) work without rewiring. stopPropagation
+  // so clicking a pen inside a <summary> doesn't also toggle the <details>.
+  document.addEventListener("click", function (e) {
+    var btn = e.target.closest(".item-edit-toggle");
+    if (!btn) return;
+    e.stopPropagation();
+    document.body.classList.toggle("editing");
+  });
+
+  // ── Drag-to-reorder the bindings list ────────────────────────────────────
+  // Lives in edit.js (not in any one template) so it works wherever a
+  // #binding-list <ul.binding-list> is rendered — /bindings/ and the
+  // embed inside /cat/<code>/. Sortable.js must be loaded by the page.
+  // Persists the order as 'long' scores in user_signal; the server
+  // re-renders sorted by those scores on next list-render.
+  var sortable = null;
+  function initBindingSort() {
+    var list = document.querySelector("#binding-list ul.binding-list");
+    if (!list || typeof Sortable === "undefined") return;
+    if (sortable) { try { sortable.destroy(); } catch (_) {} sortable = null; }
+    sortable = new Sortable(list, {
+      disabled: !document.body.classList.contains("editing"),
+      animation: 150,
+      ghostClass: "drag-ghost",
+      handle: ".drag-handle",
+      onEnd: function () {
+        var names = Array.from(list.querySelectorAll("li .name-text"))
+                         .map(function (s) { return s.textContent; });
+        fetch(BASE + "/signals/reorder", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ names: names })
+        });
+      }
+    });
+  }
+  document.addEventListener("DOMContentLoaded", initBindingSort);
+  document.body.addEventListener("htmx:afterSwap", function (evt) {
+    if (evt.detail && evt.detail.target && evt.detail.target.id === "binding-list") {
+      initBindingSort();
+    }
   });
 
   // ── Persisted UI toggles ─────────────────────────────────────────────

@@ -74,7 +74,6 @@ header { margin-bottom: 0.5rem; }
 header h1 { font-size: 1.15rem; margin: 0; }
 .lead { font-size: 0.85rem; margin: 0.15rem 0 0.5rem; }
 body:not(.editing) .lead { display: none; }
-body:not(.editing) header h1 { display: none; }
 
 header h1 {
   font-family: "Special Elite", ui-monospace, "Cascadia Mono", "Source Code Pro", monospace;
@@ -540,6 +539,22 @@ body.hide-tgt .col-tgt,
 body.hide-date .col-date,
 body.hide-from .col-from { display: none; }
 
+/* Minimum-cruft default: relationship, date, and provenance URN are
+   metadata, not the content the user came to read. Hidden unless edit
+   mode is on. Per OVERVIEW.md zero-app-noise rule. */
+body:not(.editing) .col-rel,
+body:not(.editing) .col-date,
+body:not(.editing) .col-from { display: none; }
+
+/* Single-binding name: the summary row is pure noise — qual ("goal"), tgt,
+   and the caret. Drop it; the content body below carries the value. */
+body:not(.editing) .bindings.single .col-qual { display: none; }
+body:not(.editing) .bindings.single details.bind-row > summary { display: none; }
+
+/* Inline name-card expansion: surface the pen next to the name when the
+   card is expanded, hidden when collapsed so the list stays clean. */
+details.name-card:not([open]) > summary .item-edit-toggle { display: none; }
+
 /* Content blob — accordions under its binding row, doesn't jump the page */
 .content-blob {
   background: var(--bg);
@@ -647,14 +662,14 @@ footer {
   mask: var(--icon-url) center / contain no-repeat;
 }
 
-/* In-item edit toggle — small FA pen at the top of an expanded item.
-   Toggles the same body.editing as the topnav pen, just closer to the
-   thing being edited. */
-.item-header {
+/* In-item edit toggle — small FA pen inline with the item title row, so
+   it sits next to the name and doesn't consume its own row. */
+.item-title {
   display: flex;
-  justify-content: flex-end;
-  margin: 0 0 0.5rem 0;
+  align-items: baseline;
+  gap: 0.5rem;
 }
+.item-title h1 { margin: 0; }
 .item-edit-toggle {
   background: transparent;
   border: none;
