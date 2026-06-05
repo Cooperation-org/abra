@@ -153,6 +153,13 @@ def db_delete(code: str) -> None:
 # ── Bindings browse — read-only ──────────────────────────────────────────
 # Default scope is configurable; future change is a scope picker in the UI.
 SCOPE = os.getenv("ABRA_VIEW_SCOPE", "golda")
+# Read scope list (sibling roots in the tree). ABRA_VIEW_SCOPES wins when
+# set; otherwise just the single SCOPE. Writes still target SCOPE alone.
+SCOPES = [
+    s.strip() for s in
+    os.getenv("ABRA_VIEW_SCOPES", SCOPE).split(",")
+    if s.strip()
+] or [SCOPE]
 
 # Writer URI for this user. Mirrors the AbraWriter default so view-side
 # signals (e.g. user_signal scores) share the same identity as binding
@@ -313,7 +320,7 @@ def db_top_names(q: str | None, catcode: str | None, label: str | None = None,
     hierarchical catcode address (so `a001` returns the full subtree); label
     filters to names that carry that label in the unified `labels` table
     (data-models migration 003), expiry-aware."""
-    args: list = [SCOPE, SCOPE]
+    args: list = []
     where = ""
     if q:
         where += " AND b.name ILIKE %s"
@@ -322,11 +329,11 @@ def db_top_names(q: str | None, catcode: str | None, label: str | None = None,
         where += """
             AND b.name IN (
                 SELECT name FROM labels
-                WHERE scope = %s AND label = %s
+                WHERE scope = ANY(%s) AND label = %s
                   AND (expires_at IS NULL OR expires_at > NOW())
             )
         """
-        args.extend([SCOPE, label])
+        args.extend([SCOPES, label])
     if catcode:
         # Multi-category: a binding can live under several catcodes
         # (`catcodes TEXT[]` per data-models migration 001). Prefix match
@@ -346,7 +353,7 @@ def db_top_names(q: str | None, catcode: str | None, label: str | None = None,
                COUNT(*) AS n,
                MAX(COALESCE(b.source_date, b.created_at::date))::text AS most_recent,
                (SELECT qualifier FROM bindings
-                WHERE scope = %s AND name = b.name AND qualifier IS NOT NULL
+                WHERE scope = ANY(%s) AND name = b.name AND qualifier IS NOT NULL
                 ORDER BY COALESCE(source_date, created_at::date) DESC NULLS LAST LIMIT 1) AS teaser,
                MAX(us.value) AS sig_value
         FROM bindings b
@@ -355,15 +362,14 @@ def db_top_names(q: str | None, catcode: str | None, label: str | None = None,
          AND us.scope     = b.scope
          AND us.name      = b.name
          AND us.score_kind = 'long'
-        WHERE b.scope = %s {where}
+        WHERE b.scope = ANY(%s) {where}
         GROUP BY b.name
         ORDER BY sig_value DESC NULLS LAST, n DESC, most_recent DESC NULLS LAST
         LIMIT {int(limit)}
     """
-    # SQL above expects: %s for teaser-subquery scope, then USER_URI for the
-    # user_signal join, then the outer scope used by the WHERE clause,
-    # then args already collected for q/label/catcode filters.
-    full_args = [SCOPE, USER_URI, SCOPE, *args[2:]]
+    # SQL above expects: SCOPES for teaser-subquery, USER_URI for the
+    # user_signal join, SCOPES for outer WHERE, then q/label/catcode args.
+    full_args = [SCOPES, USER_URI, SCOPES, *args]
     with conn() as c, c.cursor() as cur:
         cur.execute(sql, full_args)
         # Drop sig_value before returning — callers expect 4 columns.
@@ -543,7 +549,7 @@ def db_recent_content(limit: int = 50, q: str | None = None,
             (
               EXISTS (
                 SELECT 1 FROM bindings b
-                WHERE b.scope = %s
+                WHERE b.scope = ANY(%s)
                   AND b.target_type = 'content'
                   AND b.target_ref = c.id::text
                   AND EXISTS (
@@ -559,17 +565,17 @@ def db_recent_content(limit: int = 50, q: str | None = None,
               )
             )
         """
-        placeholders.extend([SCOPE, prefix, prefix])
+        placeholders.extend([SCOPES, prefix, prefix])
     else:
         reach_clause = """
             EXISTS (
                 SELECT 1 FROM bindings b
-                WHERE b.scope = %s
+                WHERE b.scope = ANY(%s)
                   AND b.target_type = 'content'
                   AND b.target_ref = c.id::text
             )
         """
-        placeholders.append(SCOPE)
+        placeholders.append(SCOPES)
 
     where = ""
     if q:
@@ -581,7 +587,7 @@ def db_recent_content(limit: int = 50, q: str | None = None,
                c.created_at::text,
                (SELECT array_agg(DISTINCT b.name)
                   FROM bindings b
-                 WHERE b.scope = %s
+                 WHERE b.scope = ANY(%s)
                    AND b.target_type = 'content'
                    AND b.target_ref = c.id::text) AS names
           FROM content c
@@ -590,8 +596,8 @@ def db_recent_content(limit: int = 50, q: str | None = None,
                   c.id DESC
          LIMIT {int(limit)}
     """
-    # Leading %s is the names subquery's scope; reach + q follow.
-    full_args = [SCOPE, *placeholders]
+    # Leading SCOPES is the names subquery; reach + q follow.
+    full_args = [SCOPES, *placeholders]
     with conn() as c, c.cursor() as cur:
         cur.execute(sql, full_args)
         cols = [d[0] for d in cur.description]
@@ -622,11 +628,11 @@ def db_name_detail(name: str) -> list[dict]:
             CASE WHEN b.target_type = 'content' AND b.target_ref ~ '^[0-9]+$'
                  THEN b.target_ref::integer ELSE NULL END
         )
-        WHERE b.scope = %s AND b.name = %s
+        WHERE b.scope = ANY(%s) AND b.name = %s
         ORDER BY b.relationship, b.id
     """
     with conn() as c, c.cursor() as cur:
-        cur.execute(sql, (SCOPE, name))
+        cur.execute(sql, (SCOPES, name))
         cols = [d[0] for d in cur.description]
         return [dict(zip(cols, row)) for row in cur.fetchall()]
 
