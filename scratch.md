@@ -24,6 +24,45 @@ those actually need. No code yet. First user story landed at
 session owns), the components.yaml on disk (kept as-is per Golda
 2026-06-01 — components are external fixed things, trust deferred).
 
+### → view session: security hardening pass done this seat (2026-06-05)
+
+Per Golda's "secure it" direction this seat owns the security work.
+View session's ufw analysis was right; applied the scoping fix:
+
+- `ufw allow from 10.0.0.0/24 to any port 3000:3099/tcp` (replaces Anywhere)
+- `ufw allow from 10.0.0.0/24 to any port 8000:8099/tcp` (replaces Anywhere)
+- v6 Anywhere rules removed (no v6 internal addressing in use)
+- Smoke-tested: amebo :8000, view shim :8089, demos.linkedtrust.us all 200
+
+Also tightened golda-owned .env files to 600 (abra/impl, abra/impl/pgvector,
+trust_claim, trust_claim_backend, site-linkedtrust-us, testimonies-world,
+azlocal-rag) and `~/.abra/` to 700 with yaml files at 600.
+
+Log audit: no compromise evidence. SSH only expected users from their
+usual IPs; amebo journal shows zero external IPs hitting :8000; nginx
+shows only generic wordpress scanner crap (all 404).
+
+**Update (later this seat):** Golda's call was "don't leave anything
+open — fix it, tell kene after." All amebo items applied this seat:
+
+- amebo `src/main.py` patched to bind `127.0.0.1` via `API_HOST` env
+  (default localhost). nginx public chain still 200.
+- `src/api/main.py`: `/api/docs`, `/api/redoc`, `/openapi.json` gated
+  behind `ENABLE_DOCS=true` (now 404 by default).
+- `src/api/routes/slack_oauth.py`: signature verification added to
+  `/slack/events` (it was missing; only `/commands` had it). Forged
+  unsigned events now 401.
+- `src/api/routes/auth.py`: `logger.warning("auth.login.failed ...")`
+  + `auth.signup.rejected` on every 401/403/400 raise. Successes
+  already log to `audit_logs` table + `logger.info`.
+- `/opt/shared/repos/amebo/` → `chmod -R g-w` (devteam read-only,
+  sgid preserved).
+- `amebo/backend/.env.old` → 600 (was 644, kene-owned, stale Feb creds).
+
+amebo restarted; full smoke test green. Note for kene at
+`~/work/6-5-2026-kene-amebo-hardening.md`. security-design.md §9.5
+captures the durable record.
+
 ### → amebo session: drop `data-org` from the component contract (Golda 2026-06-01)
 
 Golda's call: **org should not be in the component.** Components are
@@ -194,6 +233,120 @@ needed.
 ## view session
 
 (Owns view shim, chooser, install → topnav → per-component route.)
+
+### Item-view cleanup pass landed (2026-06-05, PR #27)
+
+Squash-merged: per-segment clickable breadcrumb on `/cat/<code>/`,
+minimum-cruft expanded item (auto-open content, pen in title row,
+single-binding suppresses redundant cols, "note"/"—" placeholders
+dropped), ESC exits edit mode, `.item-edit-toggle` click delegated in
+`edit.js`, drag wiring moved out of `bindings.html` into `edit.js` so
+the embedded list inside `/cat/<code>/` sorts too. Live at
+`https://demos.linkedtrust.us/abra-view/`.
+
+**Next-session ask from Golda (2026-06-05):** edit mode should let the
+user edit the *content body*, not just view chrome. Today the `.ed`
+mechanism toggles contenteditable on view-text spans (`view:<key>`
+bindings via `/view-text/<key>`). Content blobs render through
+`linkify(r["content"])` inside `<div class="body">` with no `.ed`
+class. Needs (1) `.ed`-style wrapper on the content body keyed on the
+content row id, (2) a write endpoint that PATCHes the content row, (3)
+deciding whether edits go to `content.text` directly or write a new
+content row + rebind. Deferred; flagged here so the next session
+doesn't miss it.
+
+### View session now owns all of abra (2026-06-05)
+
+Backend session is full-time on amebo. Golda confirmed today: view
+session owns abra end-to-end. Abra is `impl/` (library + DB primitives +
+AbraWriter) + `view/` (the shim) + the design docs. No separate abra
+service exists; the view shim reads `impl/` directly. The "backend
+session" header below remains the coordination point for amebo work.
+
+### OAuth v1 plan (2026-06-05)
+
+Decisions captured in [`security-design.md`](security-design.md) §6.1.
+Landing in stages so Golda's daily flow never breaks (per §7 migration
+step 2: session wins, env is the fallback until removed).
+
+**Stage 0 — safe, no auth touched.** Quiet `created_by` icon display
+(passive read; icon by writer URI prefix, pet name on hover/edit) +
+the three HIGH bugs from the 2026-06-04 code review (chooser
+idempotency, `components.yaml` cache staleness, URL-encoding break on
+names with `& # + / %` space).
+
+**Stage 1 — schema migration in `impl/`:**
+
+```sql
+CREATE TABLE users (
+    user_uri     TEXT PRIMARY KEY,         -- urn:abra:google/<sub>, did:plc:<...>, urn:abra:local:<handle>
+    provider     TEXT NOT NULL,            -- 'google' | 'bluesky' | 'local'
+    subject      TEXT NOT NULL,
+    email        TEXT,
+    display_name TEXT,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (provider, subject)
+);
+
+CREATE TABLE scopes (
+    scope       VARCHAR(255) PRIMARY KEY,
+    owner_uri   TEXT REFERENCES users(user_uri),
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE scope_access (
+    user_uri    TEXT NOT NULL REFERENCES users(user_uri),
+    scope       VARCHAR(255) NOT NULL REFERENCES scopes(scope),
+    can_read    BOOL NOT NULL DEFAULT TRUE,
+    can_write   BOOL NOT NULL DEFAULT FALSE,
+    granted_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    granted_by  TEXT,
+    PRIMARY KEY (user_uri, scope)
+);
+```
+
+Backfill: `scopes` rows for live scopes (`golda`, `linkedtrust`,
+`untp`, plus anything else in `bindings.scope`); `users` rows for
+current local writers; `scope_access` granting current owners r+w.
+
+**Stage 2 — AbraWriter cleanup.** Per `security-design.md` §3.6
+corollary. Four sites in `view/serve.py` bypass AbraWriter today:
+`db_delete_binding`, `db_update_label`, `db_uninstall_component`, the
+delete branch of `db_set_view_text`. Add to `impl/pgvector/`:
+
+- `delete_binding(binding_id, *, by)`
+- `update_label(target_kind, target_ref, text, *, by)`
+- Reuse `delete_binding` for the uninstall path.
+
+Migrate the four call sites. After this stage all mutations carry
+`created_by`.
+
+**Stage 3 — OAuth + session.** Google OAuth via the recipe in
+`/opt/shared/cobox/oauth-login-pattern.md`. Routes: `/login`,
+`/auth/google/callback`, `/logout`. Signed session cookie (Secure,
+HttpOnly, SameSite=Lax). Session middleware resolves cookie →
+`USER_URI`. First-login bootstrap creates `users` row, derives scope
+name from email local-part (`peter@gmail.com → peter`; collision
+appends digit), creates `scopes` row + `scope_access` r+w grant on
+own scope.
+
+**Stage 4 — scope filtering on reads.** Every DB read filters by the
+session user's `scope_access` rows instead of the hardcoded `SCOPE`
+env. Env fallback preserved per §7 step 2.
+
+**Calls I'm making per doc's leaning (Golda can veto):**
+
+- §5.1: `urn:abra:google/<sub>` for Google, `did:plc:<...>` for
+  Bluesky, `urn:abra:local:<handle>` for local.
+- §5.6: scope name derived from OAuth email local-part with collision
+  digit, enforced by `UNIQUE` on `scopes.scope`.
+
+**Need from Golda before Stage 3:** Google OAuth client_id + secret
+for `demos.linkedtrust.us/abra-view`. Redirect URI:
+`https://demos.linkedtrust.us/abra-view/auth/google/callback`.
+
+**RLS (§3.3, §5.4).** Doc says ship with v1. Not on the critical path
+for the OAuth land. Stage 5 candidate.
 
 ### Next-session topic: auth + OAuth
 
