@@ -84,6 +84,19 @@ Pattern B has bundles talking cross-origin direct to providers
 (amebo). Provider auth is the provider's problem. Risk we accept;
 we depend on amebo's auth being correct, and on TLS to amebo.
 
+### 2.8 Shared-VM `.env` exposure
+
+This VM has ~17 dev users with shell access. `/opt/shared/repos/abra/impl/.env`
+holds Postgres credentials for `abra_user` (full DB access). If the
+file is group- or world-readable, every shell user on the VM gets
+god-mode on the abra DB — bypassing every higher layer in this doc.
+Same applies to `/opt/shared/repos/amebo/backend/.env` (already
+fixed to 640 + ACL during the unix-isolation pass, 2026-06-03).
+
+Mitigation: enforce mode 600 (or 640 with a per-process ACL) on
+every `.env` under `/opt/shared/`. Audit periodically. This is the
+cheapest, highest-leverage hardening step in this doc.
+
 ---
 
 ## 3. Layered defense, in dependency order
@@ -95,9 +108,22 @@ Replace `DEV_USER` with shared OAuth login. Per `feedback_oauth_required.md`,
 
 - The shim establishes the session's `USER_URI` from the OAuth
   identity.
-- A signed, http-only session cookie carries the identity across
-  requests.
+- A signed session cookie carries the identity across requests.
+  Cookie flags: `Secure` (HTTPS only), `HttpOnly` (no JS access),
+  `SameSite=Lax` — Lax not Strict, since Strict breaks the OAuth
+  callback redirect.
+- Cookie payload is a signed reference (e.g. a session id) or a
+  short-lived signed JWT; either way the secret never leaves the
+  server.
 - No more env-trust for who the user is.
+
+**Phasing Google vs Bluesky.** Building both at once roughly doubles
+the v1 OAuth surface, *and* requires the identity-link table from
+§5.1 from day one (a user who logs in via both must resolve to one
+identity). Recommend: Google first, ship the full v1 bundle (auth +
+scope ACL + session-stamped writes + RLS, see §5.4) with Google as
+the only provider. Land Bluesky as a fast follow-on before declaring
+v1 done. Identity-link table comes with Bluesky, not with Google.
 
 ### 3.2 Scope ACL table
 
@@ -154,6 +180,15 @@ follow the same rule.
 The writer URI comes from the authenticated session, not from
 `ABRA_WRITER_URI` env. Server-side, not client-controlled. The env
 override stays available only as a CLI / batch convenience.
+
+**Corollary: no direct DML.** §3.6 is only universal if every
+mutation flows through `AbraWriter`. Today `view/serve.py` has four
+sites that bypass it (`db_delete_binding`, `db_update_label`,
+`db_uninstall_component`, the delete branch of `db_set_view_text`).
+Those need to be migrated to AbraWriter methods (adding any missing
+ones — e.g. `delete_binding`, `update_catcode_label`) as part of
+the same change. Tracked in `~/work/6-1-2026-abra-amebo-cleanup.md`
+item #1b. No new DML outside the writer.
 
 ---
 
@@ -220,9 +255,14 @@ abra-signed claims (e.g. proof of which catcode it is acting on).
 
 ### 5.4 Postgres RLS vs application-layer filter
 
-Both? App-layer first for speed, RLS as defense in depth later? Or
-land RLS at the same migration so we don't ship a window where the
-app layer is the only thing standing between users?
+**Decision: ship both together at v1.** Multi-tenant data is already
+flowing (`golda`, `linkedtrust`, `untp` scopes coexist in one DB).
+Shipping app-layer enforcement first and adding RLS later opens a
+real leak window for any app-layer bug that slips through review.
+RLS is bounded work — one migration adding policies on the six
+scope-bearing tables (`bindings`, `content`, `labels`, `user_config`,
+`user_signal`, `scope_access`) and a per-session variable set from
+the authenticated user. Land it with §3.1 / §3.2.
 
 ### 5.5 Token issuance + revocation for context stores
 
@@ -309,111 +349,3 @@ introduce auth without breaking development:
 **Status:** working draft. All open questions tracked here; nothing
 shipped. Next session picks one of the questions in §5, drives it to
 a decision, updates this doc, and starts building.
-
----
-
-## Appendix A. Critical review of amebo's email-poller proposal (2026-06-05)
-
-Review of [`amebo/docs/email-poller-architecture.md`](../amebo/docs/email-poller-architecture.md)
-(in the sibling amebo repo). Captured here because the HIGH-severity
-findings overlap with the abra-side authorization model in §2 and §3
-above. Comments also relayed to the amebo session directly.
-
-### HIGH severity
-
-1. **Forgeable `To:` is a third-party CRM write attack.** Anyone on
-   the internet can send to `amebo2019+crm@gmail.com` with any `To:`
-   value. The poller matches `To:` → `res.partner` and posts to that
-   contact's chatter. No check that the email actually came from the
-   team. So an attacker sends `To: client@…`, `Bcc: amebo2019+crm@…`,
-   and the attacker's content lands in CRM under that client's
-   record, with downstream notifications to `mail.followers`.
-   **Fix:** dead-letter (or hard-drop) anything whose `From:` /
-   `Sender:` doesn't resolve to an allowlisted team identity (or
-   DKIM-validated team domain). Add as step 0 of the resolution
-   order, before any routing.
-
-2. **Plus-alias gives spoofers full router control.** Once `+crm` /
-   `+project` / `+task` ship, they're public knowledge. Anyone
-   hitting `amebo2019+task@…` triggers the task router. Hardening
-   the sender check in (1) closes this.
-
-3. **Credential management and OAuth aren't mentioned.** The poller
-   authenticates to Gmail (IMAP) somehow — app password? OAuth2
-   refresh token? Where does the secret live, who rotates, what
-   happens on revocation? Doc is silent. Same OAuth-required
-   principle as the rest of the team (`feedback_oauth_required.md`).
-   For inbound polling, OAuth2 with a service-account-style refresh
-   token, encrypted at rest, rotation documented.
-
-4. **Author resolution NOW is "basic" but undefined.** §From →
-   partner: basic NOW; create-vs-skip policy STUB. If basic means
-   auto-create, an attacker can pollute the contact DB with phantom
-   records or hijack identity attribution. Lock NOW to
-   "skip-if-not-found"; auto-create only when the create-vs-skip
-   policy lands.
-
-### MEDIUM severity
-
-5. **Idempotency seen-set unbounded.** Storing every `Message-ID`
-   forever lets a sender DOS the dedup table with unique IDs. Bound
-   by TTL (30 days?) or hash-only with size cap; document the
-   policy.
-
-6. **Multi-recipient silent single-target.** §"single-target rule
-   for now; log the ambiguity" — but if no human reviews the log,
-   senders won't know that emails addressed to N clients filed
-   under one. Surface skipped recipients explicitly, ideally as a
-   follow-up task or a dead-letter row.
-
-7. **Dead-letter queue with no review workflow == silent drop.**
-   Doc calls it "never silently drop" but doesn't define the review
-   surface (CLI? web UI? Slack ping?) or cadence. Without that, it
-   is silent drop with a different name.
-
-8. **PII / retention not addressed.** Emails carry PII. No mention
-   of retention windows, encryption at rest, deletion-on-request.
-   Out of scope for MVP but flag as a "deferred" item with a
-   target.
-
-### LOW severity
-
-9. **Threading via `In-Reply-To` could leak across organizations**
-   if two senders happen to reuse a Message-ID (rare but specified).
-   Confirm the resolver doesn't follow stale IDs into the wrong
-   customer's thread.
-
-10. **`odoo-cli log` is a new verb** and the doc treats it as a
-    given. Cross-link to the odoo-cli repo PR; document version-skew
-    handling.
-
-11. **Plus-addressing locks you to Gmail.** Migration to any other
-    provider (Workspace switch, self-hosted IMAP) breaks routing.
-    Acceptable for v1, note as future migration cost.
-
-12. **Open questions miss the security ones.** Add to the doc's §
-    "Open questions for reviewers": (a) sender authentication
-    mechanism; (b) credential storage and rotation; (c) explicit
-    threat model — what attacker are we defending against?
-
-### Strong points worth keeping
-
-- Resolution order is well-thought (reply headers → `To:` → token →
-  dead-letter).
-- Hard rule separation between Odoo, abra, amebo is sound and matches
-  the contracts we landed.
-- `AbraResolver` stubbed behind an interface keeps amebo standalone —
-  matches the decoupling principle from `capability-design.md`.
-- Build-now vs stub split is honest about scope.
-
-### How this connects to abra's security model (§§2–3)
-
-- The "third-party CRM write" attack (HIGH 1) is the same shape as
-  abra's §2.2 (cross-scope write) and §2.4 (unauthenticated context
-  store): an unauthenticated write path with no sender attribution.
-  The fix is identical in spirit — every write needs a session
-  identity that can be authorized against the target's scope/record.
-- OAuth credential management (HIGH 3) is the same gap as abra's
-  §3.1. Solve once across both surfaces; the team standard is
-  Google + Bluesky/ATProto, applied wherever a service needs to
-  speak to another on behalf of a user.
