@@ -74,6 +74,16 @@
     }
   });
 
+  // Pen toggle (.item-edit-toggle) flips body.editing. Event-delegated so
+  // pens added later (via htmx swap) work without rewiring. stopPropagation
+  // so clicking a pen inside a <summary> doesn't also toggle the <details>.
+  document.addEventListener("click", function (e) {
+    var btn = e.target.closest(".item-edit-toggle");
+    if (!btn) return;
+    e.stopPropagation();
+    document.body.classList.toggle("editing");
+  });
+
   // ── Persisted UI toggles ─────────────────────────────────────────────
   // Any element with `data-ui-pref="ui.<key>"` becomes a persisted body-
   // class toggle. The server already applied the initial body class on

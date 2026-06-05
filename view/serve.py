@@ -1149,7 +1149,6 @@ def binding_list_html(rows: list[tuple], q: str | None,
             f'{teaser_html}'
             f'<span class="meta">{n}× · {esc(date_str)}</span>'
             f'<button type="button" class="item-edit-toggle"'
-            f' onclick="event.stopPropagation();document.body.classList.toggle(\'editing\')"'
             f' aria-label="edit"><i class="fa-solid fa-pen"></i></button>'
             f'</summary>'
             f'<div class="detail-card" '
