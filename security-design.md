@@ -84,6 +84,19 @@ Pattern B has bundles talking cross-origin direct to providers
 (amebo). Provider auth is the provider's problem. Risk we accept;
 we depend on amebo's auth being correct, and on TLS to amebo.
 
+### 2.8 Shared-VM `.env` exposure
+
+This VM has ~17 dev users with shell access. `/opt/shared/repos/abra/impl/.env`
+holds Postgres credentials for `abra_user` (full DB access). If the
+file is group- or world-readable, every shell user on the VM gets
+god-mode on the abra DB — bypassing every higher layer in this doc.
+Same applies to `/opt/shared/repos/amebo/backend/.env` (already
+fixed to 640 + ACL during the unix-isolation pass, 2026-06-03).
+
+Mitigation: enforce mode 600 (or 640 with a per-process ACL) on
+every `.env` under `/opt/shared/`. Audit periodically. This is the
+cheapest, highest-leverage hardening step in this doc.
+
 ---
 
 ## 3. Layered defense, in dependency order
@@ -95,9 +108,22 @@ Replace `DEV_USER` with shared OAuth login. Per `feedback_oauth_required.md`,
 
 - The shim establishes the session's `USER_URI` from the OAuth
   identity.
-- A signed, http-only session cookie carries the identity across
-  requests.
+- A signed session cookie carries the identity across requests.
+  Cookie flags: `Secure` (HTTPS only), `HttpOnly` (no JS access),
+  `SameSite=Lax` — Lax not Strict, since Strict breaks the OAuth
+  callback redirect.
+- Cookie payload is a signed reference (e.g. a session id) or a
+  short-lived signed JWT; either way the secret never leaves the
+  server.
 - No more env-trust for who the user is.
+
+**Phasing Google vs Bluesky.** Building both at once roughly doubles
+the v1 OAuth surface, *and* requires the identity-link table from
+§5.1 from day one (a user who logs in via both must resolve to one
+identity). Recommend: Google first, ship the full v1 bundle (auth +
+scope ACL + session-stamped writes + RLS, see §5.4) with Google as
+the only provider. Land Bluesky as a fast follow-on before declaring
+v1 done. Identity-link table comes with Bluesky, not with Google.
 
 ### 3.2 Scope ACL table
 
@@ -154,6 +180,15 @@ follow the same rule.
 The writer URI comes from the authenticated session, not from
 `ABRA_WRITER_URI` env. Server-side, not client-controlled. The env
 override stays available only as a CLI / batch convenience.
+
+**Corollary: no direct DML.** §3.6 is only universal if every
+mutation flows through `AbraWriter`. Today `view/serve.py` has four
+sites that bypass it (`db_delete_binding`, `db_update_label`,
+`db_uninstall_component`, the delete branch of `db_set_view_text`).
+Those need to be migrated to AbraWriter methods (adding any missing
+ones — e.g. `delete_binding`, `update_catcode_label`) as part of
+the same change. Tracked in `~/work/6-1-2026-abra-amebo-cleanup.md`
+item #1b. No new DML outside the writer.
 
 ---
 
@@ -220,9 +255,14 @@ abra-signed claims (e.g. proof of which catcode it is acting on).
 
 ### 5.4 Postgres RLS vs application-layer filter
 
-Both? App-layer first for speed, RLS as defense in depth later? Or
-land RLS at the same migration so we don't ship a window where the
-app layer is the only thing standing between users?
+**Decision: ship both together at v1.** Multi-tenant data is already
+flowing (`golda`, `linkedtrust`, `untp` scopes coexist in one DB).
+Shipping app-layer enforcement first and adding RLS later opens a
+real leak window for any app-layer bug that slips through review.
+RLS is bounded work — one migration adding policies on the six
+scope-bearing tables (`bindings`, `content`, `labels`, `user_config`,
+`user_signal`, `scope_access`) and a per-session variable set from
+the authenticated user. Land it with §3.1 / §3.2.
 
 ### 5.5 Token issuance + revocation for context stores
 
