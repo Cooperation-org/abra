@@ -1255,17 +1255,10 @@ def name_detail_html(name: str, rows: list[dict]) -> str:
 
         if has_content:
             ref = esc(target_ref)
-            src = esc(r.get("source_file") or "")
-            cdate = esc(r.get("note_date") or date)
             items.append(
-                f'<details class="bind-row has-content" id="content-{ref}">'
+                f'<details class="bind-row has-content" id="content-{ref}" open>'
                 f'<summary>{cols}</summary>'
                 f'<div class="content-blob">'
-                f'<header>'
-                f'<span>{cdate}</span>'
-                f'<span>{src}</span>'
-                f'<span class="muted">#{ref}</span>'
-                f'</header>'
                 f'<div class="body">{linkify(r["content"])}</div>'
                 f'</div>'
                 f'</details>'
@@ -1273,12 +1266,7 @@ def name_detail_html(name: str, rows: list[dict]) -> str:
         else:
             items.append(f'<div class="bind-row">{cols}</div>')
 
-    edit_toggle = (
-        '<button type="button" class="item-edit-toggle"'
-        ' onclick="document.body.classList.toggle(\'editing\')"'
-        ' aria-label="edit this item"><i class="fa-solid fa-pen"></i></button>'
-    )
-    return f'<div class="item-header">{edit_toggle}</div><div class="bindings">{"".join(items)}</div>'
+    return f'<div class="bindings">{"".join(items)}</div>'
 
 
 # ── request handler ──────────────────────────────────────────────────────
