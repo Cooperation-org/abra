@@ -637,6 +637,15 @@ footer {
   height: 18px;
   display: block;
 }
+/* Tintable variant: SVGs authored with currentColor (per the catalog's
+   provider convention) get the host's text color via background-color +
+   mask. This is what lets amebo's claws.svg etc. adapt to light/dark
+   topnav themes instead of rendering hard-coded black. */
+.nav-icon.mask-icon {
+  background-color: currentColor;
+  -webkit-mask: var(--icon-url) center / contain no-repeat;
+  mask: var(--icon-url) center / contain no-repeat;
+}
 
 /* In-item edit toggle — small FA pen at the top of an expanded item.
    Toggles the same body.editing as the topnav pen, just closer to the
