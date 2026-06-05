@@ -62,51 +62,13 @@
       // syncs to the body classes that the server applied from persisted
       // UI prefs. The actual toggle behaviour (click → POST → body class)
       // lives in edit.js so it's the same code for every data-ui-pref
-      // button on the page.
+      // button on the page. Drag-to-reorder also lives in edit.js, so it
+      // works equally on /bindings/ and the embed inside /cat/<code>/.
       document.querySelectorAll('.col-toggles .ct').forEach(function (b) {
         var key = b.dataset.uiPref;
         var cls = (window.UI_PREFS || {})[key];
         if (cls && document.body.classList.contains(cls)) b.classList.add('hidden');
       });
-
-      // Drag-to-reorder the bindings list. Active only in edit mode.
-      // Persists the order as 'long' scores in user_signal (server side),
-      // so the order survives reload, and a fresh list-render sorts by
-      // those scores. The list is htmx-replaced on every search keystroke,
-      // so re-init on every afterSwap.
-      var __sortable = null;
-      function initBindingSort() {
-        var list = document.querySelector('#binding-list ul.binding-list');
-        if (!list || typeof Sortable === 'undefined') return;
-        if (__sortable) { try { __sortable.destroy(); } catch(e){} __sortable = null; }
-        __sortable = new Sortable(list, {
-          disabled: !document.body.classList.contains('editing'),
-          animation: 150,
-          ghostClass: 'drag-ghost',
-          handle: '.drag-handle',
-          onEnd: function () {
-            var names = Array.from(list.querySelectorAll('li .name-text'))
-                             .map(function (s) { return s.textContent; });
-            fetch('__BASE__/signals/reorder', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              credentials: 'same-origin',
-              body: JSON.stringify({ names: names })
-            });
-          }
-        });
-      }
-      document.body.addEventListener('htmx:afterSwap', function (evt) {
-        if (evt.detail && evt.detail.target && evt.detail.target.id === 'binding-list') {
-          initBindingSort();
-        }
-      });
-      // Edit-mode toggles enable/disable drag without re-init.
-      new MutationObserver(function () {
-        if (__sortable) {
-          __sortable.option('disabled', !document.body.classList.contains('editing'));
-        }
-      }).observe(document.body, { attributes: true, attributeFilter: ['class'] });
     </script>
 
     <footer>
