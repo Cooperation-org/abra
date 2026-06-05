@@ -64,6 +64,16 @@
     attributes: true, attributeFilter: ["class"],
   });
 
+  // ESC exits edit mode. Lets the user bail out without hunting the toggle.
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && document.body.classList.contains("editing")) {
+      document.body.classList.remove("editing");
+      if (document.activeElement && document.activeElement.blur) {
+        document.activeElement.blur();
+      }
+    }
+  });
+
   // ── Persisted UI toggles ─────────────────────────────────────────────
   // Any element with `data-ui-pref="ui.<key>"` becomes a persisted body-
   // class toggle. The server already applied the initial body class on

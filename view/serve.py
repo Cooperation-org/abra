@@ -1098,9 +1098,8 @@ def render_target(target_type: str, target_ref: str) -> str:
     if not target_ref:
         return ""
     if target_type == "content":
-        # The accordion <details> is the row itself; clicking the summary
-        # opens the content below, so we don't need a scroll-anchor link.
-        return f'<span class="content-ref">note</span>'
+        # The content body is the value — col-tgt has nothing useful to add.
+        return ""
     if target_type == "name":
         from urllib.parse import quote
         href = u(f"/bindings/") + f"?q={quote(target_ref, safe='')}"
@@ -1149,6 +1148,9 @@ def binding_list_html(rows: list[tuple], q: str | None,
             f'<a class="name-text" href="{u(f"/bindings/?q={url_path_seg(name)}")}">{esc(name)}</a>'
             f'{teaser_html}'
             f'<span class="meta">{n}× · {esc(date_str)}</span>'
+            f'<button type="button" class="item-edit-toggle"'
+            f' onclick="event.stopPropagation();document.body.classList.toggle(\'editing\')"'
+            f' aria-label="edit"><i class="fa-solid fa-pen"></i></button>'
             f'</summary>'
             f'<div class="detail-card" '
             f'hx-get="{href}" '
@@ -1246,7 +1248,7 @@ def name_detail_html(name: str, rows: list[dict]) -> str:
 
         cols = (
             f'<span class="col-rel">{esc(rel)}</span>'
-            f'<span class="col-qual">{esc(qual) or "—"}</span>'
+            f'<span class="col-qual">{esc(qual)}</span>'
             f'<span class="col-tgt">{render_target(target_type, target_ref)}</span>'
             f'<span class="col-date">{esc(date)}</span>'
             f'<span class="col-from">{esc(prov)}</span>'
@@ -1266,7 +1268,8 @@ def name_detail_html(name: str, rows: list[dict]) -> str:
         else:
             items.append(f'<div class="bind-row">{cols}</div>')
 
-    return f'<div class="bindings">{"".join(items)}</div>'
+    container_class = "bindings single" if len(rows) == 1 else "bindings"
+    return f'<div class="{container_class}">{"".join(items)}</div>'
 
 
 # ── request handler ──────────────────────────────────────────────────────
@@ -1665,7 +1668,8 @@ class Handler(BaseHTTPRequestHandler):
         )
         # Parent label split on "/" so each piece is its own link to the
         # matching ancestor catcode, plus the current page's leaf appended
-        # as plain text.
+        # as its own link to the current page (reloading the page out of
+        # edit mode).
         ancestors = db_ancestors(code)
         if ancestors:
             parent_code, parent_label = ancestors[-1]
@@ -1689,7 +1693,10 @@ class Handler(BaseHTTPRequestHandler):
                     f'{esc(parent_label)}</a>'
                 ]
             current_leaf = label.split("/")[-1]
-            links.append(esc(current_leaf))
+            links.append(
+                f'<a href="{u(f"/cat/{url_path_seg(code)}/")}">'
+                f'{esc(current_leaf)}</a>'
+            )
             parent_link = "/".join(links)
         else:
             parent_link = f'<a href="{BASE}/">top</a>'
