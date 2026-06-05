@@ -195,6 +195,14 @@ needed.
 
 (Owns view shim, chooser, install → topnav → per-component route.)
 
+### Next-session topic: auth + OAuth
+
+Working draft at [`security-design.md`](security-design.md).
+Attack surfaces ranked, layered defense sketched, open design
+questions captured. v1 scope locked: OAuth login, scope ACL
+table, user_config gated on session, AbraWriter stamping from
+session. Pick a question from §5 and drive it before code.
+
 ### → amebo, 2026-06-04: heads up — empty `status=` 400s `/api/goals/`
 
 Golda hit "I can't use the claw at all." Traced to the bundle calling
