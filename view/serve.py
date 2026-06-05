@@ -377,6 +377,31 @@ def db_catcode_label(code: str) -> str | None:
         return row[0] if row else None
 
 
+def db_ancestors(code: str) -> list[tuple[str, str]]:
+    """Ancestor (catcode, label) pairs from root → immediate parent."""
+    with conn() as c, c.cursor() as cur:
+        cur.execute(
+            """
+            WITH RECURSIVE chain AS (
+                SELECT catcode, parent_catcode, 0 AS depth
+                FROM catcode_registry WHERE catcode = %s
+                UNION ALL
+                SELECT cr.catcode, cr.parent_catcode, ch.depth + 1
+                FROM catcode_registry cr
+                JOIN chain ch ON cr.catcode = ch.parent_catcode
+                WHERE ch.parent_catcode IS NOT NULL AND ch.depth < 32
+            )
+            SELECT c.catcode, COALESCE(r.label, c.catcode)
+            FROM chain c
+            LEFT JOIN catcode_registry r ON r.catcode = c.catcode
+            WHERE c.depth > 0
+            ORDER BY c.depth DESC
+            """,
+            (code,),
+        )
+        return [(r[0], r[1]) for r in cur.fetchall()]
+
+
 # ── User-editable view chrome ────────────────────────────────────────────
 # Every visible piece of view chrome (tab text, headings, lead text, column
 # labels) is editable inline. Overrides persist in abra itself as IS-bindings
@@ -1650,21 +1675,36 @@ class Handler(BaseHTTPRequestHandler):
             f'<ul class="tree">{render(code)}</ul>'
             if by_parent.get(code) else ""
         )
-        # Parent breadcrumb link (or "top" when at the home root)
-        with conn() as c, c.cursor() as cur:
-            cur.execute(
-                "SELECT parent_catcode FROM catcode_registry WHERE catcode = %s",
-                (code,),
-            )
-            row = cur.fetchone()
-            parent = row[0] if row else None
-        if parent:
-            plabel = db_catcode_label(parent) or parent
-            parent_link = (
-                f'<a href="{u(f"/cat/{url_path_seg(parent)}/")}">{esc(plabel)}</a>'
-            )
+        # Parent label split on "/" so each piece is its own link to the
+        # matching ancestor catcode, plus the current page's leaf appended
+        # as plain text.
+        ancestors = db_ancestors(code)
+        if ancestors:
+            parent_code, parent_label = ancestors[-1]
+            pieces = parent_label.split("/")
+            if len(pieces) > 1:
+                ancestor_by_label = {al: ac for ac, al in ancestors}
+                links = []
+                for i, piece in enumerate(pieces):
+                    prefix_label = "/".join(pieces[: i + 1])
+                    ac = ancestor_by_label.get(prefix_label)
+                    if ac:
+                        links.append(
+                            f'<a href="{u(f"/cat/{url_path_seg(ac)}/")}">'
+                            f'{esc(piece)}</a>'
+                        )
+                    else:
+                        links.append(esc(piece))
+            else:
+                links = [
+                    f'<a href="{u(f"/cat/{url_path_seg(parent_code)}/")}">'
+                    f'{esc(parent_label)}</a>'
+                ]
+            current_leaf = label.split("/")[-1]
+            links.append(esc(current_leaf))
+            parent_link = "/".join(links)
         else:
-            parent_link = '<a href="{0}/">top</a>'.format(BASE)
+            parent_link = f'<a href="{BASE}/">top</a>'
         return apply_view_texts(
             (HERE / "cat.html").read_text()
             .replace("__BASE__", BASE)
