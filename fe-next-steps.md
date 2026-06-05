@@ -9,6 +9,109 @@ All work landed on `main`; no in-flight branches.
 
 ---
 
+## What this is — the 90-second orientation
+
+### Abra (this repo)
+
+**A brain extension.** The map of what is important to a person, or
+to a team. Pet names (`peter`, `ltq1`, `arige`) point at things
+through typed *bindings*. *Catcodes* are positional coordinates in a
+shared hierarchical information space (`a00101` = golda,
+`a00104` = democracy, etc.). Hot tags + labels mark what's prominent
+now. Content blobs hold the actual text behind a name.
+
+Abra has two subsystems with a clean boundary inside one repo:
+
+- **The map** (`impl/`): names, bindings, catcodes, content, labels,
+  user_signal, user_config. Lives in Postgres via pgvector. Library +
+  DB, not a service.
+- **The view** (`view/`): the daily-drive UI. A stdlib `http.server`
+  shim (`view/serve.py`) fronted by nginx at `demos.linkedtrust.us/abra-view/`.
+  Reads the map; lets the user mutate via HTMX-driven write surfaces.
+  This is what *you*, the view session, own end to end.
+
+Abra is **open**: any system can write, every binding carries
+`created_by`. Abra is **standalone**: it does not require amebo or any
+other provider. Bindings can optionally publish out as LinkedClaims to
+the trust web.
+
+### Amebo (sibling repo, separate session)
+
+**The friendly claw.** A loop runner. Owns *claws* (computational
+units a Claude loop executes), events, digest, Q&A. Has its own DB,
+its own OAuth, its own org model. Ships **web components**
+(`amebo-claws`, `amebo-create-claw`, `amebo-digest`) as `embed/amebo.js`,
+served from its backend. Hosted at `amebo.linkedtrust.us` (when wired)
+or `127.0.0.1:8000` locally.
+
+Amebo is **independently complete**: every claw works without abra
+being reachable. Some claws may optionally read or write *context
+stores* (per [`context-store-contract.md`](context-store-contract.md))
+which abra happens to implement over `(scope, catcode)`. Amebo never
+depends on those URLs being abra-shaped.
+
+### LinkedTrust / LinkedClaims (further sibling)
+
+Trust scoring + claim publication. Abra can publish bindings out as
+LinkedClaims; LinkedTrust can return trust scores abra-side composition
+might use. Not relevant for most view-session work; flagged for
+completeness.
+
+### Separation of concerns (the hard boundary)
+
+Three repos, three sessions, three responsibilities:
+
+| | Owns | Does not own |
+|---|---|---|
+| **abra** (view + map) | the map, the UI, view-side composition + scoring | loop behaviour, PII, task lifecycle, conversation threads, trust scoring |
+| **amebo** | claws, events, OAuth, the user-facing intent loop | the map, identity registry, anything cross-provider |
+| **LinkedTrust** | claim publication, trust scoring | both above |
+
+Rules that hold both ways:
+
+- **Abra never imports amebo. Amebo never imports abra.** They
+  communicate via three contracts:
+  [`component-contract.md`](component-contract.md) (provider components
+  abra renders), [`capability-design.md`](capability-design.md)
+  (per-(user, catcode) action enablement), and
+  [`context-store-contract.md`](context-store-contract.md) (generic
+  HTTP store for claws).
+- **Web components ship cross-origin, Pattern B.** The view embeds
+  amebo's bundle; the bundle calls amebo's API directly with
+  `credentials: 'include'`. View does not proxy upstream APIs (the
+  earlier `/abra-view/up/amebo/*` proxy was superseded by Pattern B,
+  with one defensive exception: stripping empty query params on the
+  way through).
+- **abra is the store; the view never invents its own catalogs or
+  registries.** Things the user "has" (installs, capabilities, signals)
+  live in abra's data model, addressable from the view.
+- **Per `OVERVIEW.md`'s Zero app noise rule**: every visible string in
+  the view is user content or user-editable. No system-generated
+  section headers, no developer-mental-model labels. This is the rule
+  the previous session violated and got corrected on; bake it in.
+
+### Where the view session fits
+
+You own `view/` end to end:
+
+- The shim (`view/serve.py`) that reads the map and serves HTML.
+- The templates (`index.html`, `bindings.html`, `recent.html`,
+  `cat.html`, `name.html`) and `style.css`, `edit.js`.
+- The install / uninstall flow and the topnav.
+- Catcode tree mutations + bindings list + recent feed.
+- The integration points where amebo's bundle gets mounted on
+  `/c/<inst>/`.
+
+You do NOT touch:
+
+- `impl/` — the data-models session owns DB schema, migrations,
+  primitives. Coordinate via `scratch.md` if you need shape changes.
+- The amebo repo — except when Golda explicitly asks you to leave a
+  review or note on their docs.
+- Other team members' home dirs or running services.
+
+---
+
 ## What shipped this cycle
 
 | Surface | Notes |
