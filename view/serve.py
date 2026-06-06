@@ -1192,26 +1192,30 @@ def recent_feed_html(items: list[dict]) -> str:
     for r in items:
         cid = r["id"]
         date = r.get("note_date") or (r.get("created_at") or "")[:10] or ""
-        src = r.get("source_file") or ""
         body = r.get("content") or ""
         names = r.get("names") or []
-        excerpt = _one_line_excerpt(body)
+        # De-dup the name list — the legacy gmail import can produce repeats.
+        seen: set[str] = set()
+        unique_names: list[str] = []
+        for n in names:
+            if n and n not in seen:
+                seen.add(n)
+                unique_names.append(n)
         name_links = " · ".join(
             f'<a class="name-text" href="{u(f"/bindings/?q={url_path_seg(n)}")}">{esc(n)}</a>'
-            for n in names
+            for n in unique_names
         )
-        src_html = (
-            f'<span class="feed-src muted">{esc(src)}</span>'
-            if src else ""
-        )
+        # Summary is just the date. The body auto-opens below; the previous
+        # excerpt span was the first line of the same body, which read as a
+        # duplicate. Source file was likewise the contact's import path —
+        # also a near-duplicate of the names in the footer.
         parts.append(
             f'<details class="feed-item" id="feed-{cid}" open>'
             f'<summary class="feed-head">'
             f'<span class="feed-date">{esc(date)}</span>'
-            f'<span class="feed-excerpt">{esc(excerpt)}</span>'
             f'</summary>'
             f'<div class="feed-body">{linkify(body)}</div>'
-            + (f'<footer class="feed-names">{src_html}{name_links}</footer>' if (names or src) else "")
+            + (f'<footer class="feed-names">{name_links}</footer>' if unique_names else "")
             + f'</details>'
         )
     return "".join(parts)
