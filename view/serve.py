@@ -604,6 +604,37 @@ def db_recent_content(limit: int = 50, q: str | None = None,
         return [dict(zip(cols, row)) for row in cur.fetchall()]
 
 
+def db_solo_uri_for_names(names: list[str]) -> dict[str, str]:
+    """For each name with exactly one distinct URI-typed binding, return its
+    resolved URL. Names with 0 or many distinct URIs are omitted — the
+    caller falls back to the abra name page so the user can pick. Avoids
+    hardcoding a preferred provider when multiple links exist."""
+    if not names:
+        return {}
+    with conn() as c, c.cursor() as cur:
+        cur.execute(
+            "SELECT name, target_ref FROM bindings "
+            "WHERE scope = ANY(%s) AND target_type = 'uri' "
+            "AND name = ANY(%s)",
+            (SCOPES, names),
+        )
+        per_name: dict[str, set[str]] = {}
+        for n, t in cur.fetchall():
+            per_name.setdefault(n, set()).add(t)
+    out: dict[str, str] = {}
+    for n, refs in per_name.items():
+        if len(refs) != 1:
+            continue
+        ref = next(iter(refs))
+        if ref.startswith(("http://", "https://")):
+            out[n] = ref
+            continue
+        resolved = _resolve_uri(ref)
+        if resolved:
+            out[n] = resolved
+    return out
+
+
 def db_delete_binding(binding_id: int) -> None:
     """Delete one binding by id within the active scope. Scope check
     keeps a user from deleting another scope's row by guessing id."""
@@ -1181,13 +1212,30 @@ def _one_line_excerpt(text: str, n: int = 140) -> str:
     return line
 
 
-def recent_feed_html(items: list[dict]) -> str:
+def recent_feed_html(items: list[dict],
+                     name_links_map: dict[str, str] | None = None) -> str:
     """Reverse-chrono feed of content blobs. Each entry is a <details>
     so it can collapse to a compact summary (date + one-line excerpt)
     or expand to the full body. A master toggle in the page collapses
-    or expands all entries at once."""
+    or expands all entries at once.
+
+    `name_links_map` (optional): when a footer name has a single known
+    external link (single URI binding), map it here name → URL so the
+    footer goes straight to that resource. Names not in the map fall
+    back to the abra `/names/<name>/` page."""
     if not items:
         return ""  # Zero app noise.
+    links = name_links_map or {}
+    def _name_link(n: str) -> str:
+        url = links.get(n)
+        if url:
+            external = ' target="_blank" rel="noopener noreferrer"' \
+                if url.startswith(("http://", "https://")) else ""
+            return f'<a class="name-text" href="{esc(url)}"{external}>{esc(n)}</a>'
+        return (
+            f'<a class="name-text" href="{u(f"/names/{url_path_seg(n)}/")}">'
+            f'{esc(n)}</a>'
+        )
     parts: list[str] = []
     for r in items:
         cid = r["id"]
@@ -1201,10 +1249,7 @@ def recent_feed_html(items: list[dict]) -> str:
             if n and n not in seen:
                 seen.add(n)
                 unique_names.append(n)
-        name_links = " · ".join(
-            f'<a class="name-text" href="{u(f"/bindings/?q={url_path_seg(n)}")}">{esc(n)}</a>'
-            for n in unique_names
-        )
+        name_links = " · ".join(_name_link(n) for n in unique_names)
         # Summary is just the date. The body auto-opens below; the previous
         # excerpt span was the first line of the same body, which read as a
         # duplicate. Source file was likewise the contact's import path —
@@ -1377,7 +1422,16 @@ class Handler(BaseHTTPRequestHandler):
                     limit=50,
                     catcode=catcode or None,
                 )
-                feed = recent_feed_html(items)
+                all_names: list[str] = []
+                seen_n: set[str] = set()
+                for it in items:
+                    for n in (it.get("names") or []):
+                        if n and n not in seen_n:
+                            seen_n.add(n)
+                            all_names.append(n)
+                feed = recent_feed_html(
+                    items, db_solo_uri_for_names(all_names)
+                )
                 return apply_view_texts(
                     (HERE / "recent.html").read_text()
                     .replace("__BASE__", BASE)
