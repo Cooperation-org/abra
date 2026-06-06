@@ -15,9 +15,6 @@
     <a href="__BASE__/bindings/" class="nav" aria-label="Bindings" title="Bindings"><i class="fa-solid fa-list"></i></a>
     <a href="__BASE__/recent/?catcode=__CODE__" class="nav" aria-label="Recent" title="Recent"><i class="fa-solid fa-arrow-down-wide-short"></i></a>
     <a href="#" class="nav" onclick="if(document.body.classList.contains('editing')){document.body.classList.remove('editing');return false}history.back();return false" aria-label="back"><i class="fa-solid fa-arrow-left"></i></a>
-    <button type="button" class="nav"
-            onclick="document.body.classList.toggle('search-open');var i=document.querySelector('input[name=q]');if(i&&document.body.classList.contains('search-open'))i.focus()"
-            aria-label="find"><i class="fa-solid fa-magnifying-glass"></i></button>
     <button type="button" class="nav add-component write-only"
             hx-get="__BASE__/components/chooser"
             hx-target="#modal-slot"
@@ -41,16 +38,10 @@
     <main>
       <div id="flash" aria-live="polite"></div>
       __SUBTREE__
-      <form class="search-row"
-            hx-get="__BASE__/bindings/list"
-            hx-trigger="keyup changed delay:200ms from:input[name=q], load"
-            hx-target="#binding-list"
-            hx-swap="innerHTML">
-        <input type="search" name="q" placeholder="" autocomplete="off" value="">
-        <input type="hidden" name="catcode" value="__CODE__">
-      </form>
-      <div id="binding-list">
-        <p class="muted">Loading…</p>
+      <div id="binding-list"
+           hx-get="__BASE__/bindings/list?catcode=__CODE__"
+           hx-trigger="load"
+           hx-swap="innerHTML">
       </div>
     </main>
 
