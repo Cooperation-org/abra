@@ -609,9 +609,19 @@ def cmd_store(args):
     catcode = _resolve_catcode(writer, args)
     content_id = writer.store_content(source_file, content, catcode=catcode)
     qualifier = args.qualifier or "stored via cli"
+
+    # Optional source_date so the entry appears in the reverse timeline
+    # (abra when). "today" resolves to the current date.
+    source_date = getattr(args, "date", None)
+    if source_date:
+        if source_date.lower() == "today":
+            from datetime import date
+            source_date = date.today().isoformat()
+
     writer.write_binding(args.scope, args.name, "ABOUT", "content", str(content_id),
-                         qualifier=qualifier, catcode=catcode)
-    print(f"Stored content [{content_id}] and bound to {args.name} [{qualifier}] under {catcode}")
+                         qualifier=qualifier, source_date=source_date, catcode=catcode)
+    dated = f" on {source_date}" if source_date else ""
+    print(f"Stored content [{content_id}] and bound to {args.name} [{qualifier}] under {catcode}{dated}")
     writer.close()
 
 
@@ -808,6 +818,7 @@ def main():
     p_store.add_argument('--qualifier', help='Qualifier for the ABOUT binding')
     p_store.add_argument('--cat', help='Category path under a registered root, e.g. untp/2026/june. Missing segments auto-create.')
     p_store.add_argument('--catcode', help='Use an existing catcode directly, e.g. a00105')
+    p_store.add_argument('--date', help='Source date (YYYY-MM-DD) for the timeline (abra when). Use "today" for today.')
 
     p_bind = sub.add_parser('bind', help='Create a binding')
     p_bind.add_argument('--scope', **scope_kw)
