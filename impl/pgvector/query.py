@@ -37,6 +37,15 @@ import argparse
 import psycopg2
 from dotenv import load_dotenv
 
+# Keep the CLI output clean: silence HuggingFace / transformers model-load
+# progress bars (the "Loading weights / Materializing param" spam) so a session
+# calling `abra search`/`store` gets results, not download bars. Set before any
+# HF library is imported.
+os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+os.environ.setdefault("HF_HUB_VERBOSITY", "error")
+os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 
 MODEL_NAME = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
@@ -47,6 +56,11 @@ def get_model():
     """Lazy-load embedding model (only when needed for vector search)."""
     global _model
     if _model is None:
+        try:
+            from huggingface_hub.utils import disable_progress_bars
+            disable_progress_bars()
+        except Exception:
+            pass
         from sentence_transformers import SentenceTransformer
         _model = SentenceTransformer(MODEL_NAME)
     return _model
