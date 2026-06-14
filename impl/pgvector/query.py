@@ -46,7 +46,14 @@ os.environ.setdefault("HF_HUB_VERBOSITY", "error")
 os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
-load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
+# The .env is optional: service identities (e.g. the amebo service user) carry
+# their credentials in the environment instead, and may not be able to read a
+# developer's .env file. An unreadable .env must not crash the CLI.
+_dotenv_path = os.path.join(os.path.dirname(__file__), '..', '.env')
+try:
+    load_dotenv(_dotenv_path)
+except OSError:
+    pass
 
 MODEL_NAME = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
 _model = None
@@ -71,8 +78,15 @@ PG_USER = os.getenv("PG_USER", "cobox")
 PG_PASSWORD = os.getenv("PG_PASSWORD", "")
 PG_DATABASE = os.getenv("PG_DATABASE", "abra")
 
+# A full connection URL takes precedence over the discrete PG_* vars. This is
+# how scoped service identities connect (e.g. amebo sets ABRA_DATABASE_URL to
+# its amebo_writer role) without sharing a developer's PG_* credentials.
+ABRA_DATABASE_URL = os.getenv("ABRA_DATABASE_URL", "")
+
 
 def get_conn():
+    if ABRA_DATABASE_URL:
+        return psycopg2.connect(ABRA_DATABASE_URL)
     return psycopg2.connect(
         host=PG_HOST, port=PG_PORT, user=PG_USER,
         password=PG_PASSWORD, dbname=PG_DATABASE
