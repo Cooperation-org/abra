@@ -1250,15 +1250,20 @@ def recent_feed_html(items: list[dict],
                 seen.add(n)
                 unique_names.append(n)
         name_links = " · ".join(_name_link(n) for n in unique_names)
-        # Summary is just the date. The body auto-opens below; the previous
-        # excerpt span was the first line of the same body, which read as a
-        # duplicate. Source file was likewise the contact's import path —
-        # also a near-duplicate of the names in the footer.
+        # Summary carries the date plus a one-line excerpt of the body so a
+        # collapsed entry is still recognisable (on mobile a bare date is
+        # useless). The excerpt is hidden by CSS when the entry is [open] —
+        # there the full body shows below and the excerpt would duplicate it
+        # (the reason it was previously removed entirely). When the excerpt
+        # is empty, fall back to the first name, then to nothing (date alone),
+        # so the summary is never blank.
+        excerpt = _one_line_excerpt(body) or (unique_names[0] if unique_names else "")
         parts.append(
             f'<details class="feed-item" id="feed-{cid}" open>'
             f'<summary class="feed-head">'
             f'<span class="feed-date">{esc(date)}</span>'
-            f'</summary>'
+            + (f'<span class="feed-excerpt">{esc(excerpt)}</span>' if excerpt else "")
+            + f'</summary>'
             f'<div class="feed-body">{linkify(body)}</div>'
             + (f'<footer class="feed-names">{name_links}</footer>' if unique_names else "")
             + f'</details>'

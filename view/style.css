@@ -720,7 +720,11 @@ body:not(.editing) .write-only { display: none !important; }
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--ink-2);
 }
+/* When the entry is open the full body is visible below, so the summary
+   excerpt would duplicate it — hide it. It only earns its keep collapsed. */
+.feed-item[open] > .feed-head > .feed-excerpt { display: none; }
 .feed-item:not([open]) > .feed-head { margin-bottom: 0; }
 .feed-date { flex-shrink: 0; }
 .feed-item > .feed-head::-webkit-details-marker { display: none; }
