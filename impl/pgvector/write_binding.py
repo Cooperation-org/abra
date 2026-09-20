@@ -76,16 +76,19 @@ class AbraWriter:
                 password=PG_PASSWORD, dbname=PG_DATABASE
             )
 
-    def store_content(self, source_file, content, note_date=None, catcode=None):
+    def store_content(self, source_file, content, note_date=None, catcode=None,
+                      embedding=None):
         """Store a content blob. Returns content ID.
         Populates both `catcode` (singular, legacy) and `catcodes` (array, current spec).
-        Stamps created_by from self.writer_uri."""
+        Stamps created_by from self.writer_uri.
+        `embedding` is required for the blob to be reachable by semantic search:
+        rows with a NULL embedding are excluded from the vector query."""
         cur = self.conn.cursor()
         catcodes = [catcode] if catcode else []
         cur.execute(
-            "INSERT INTO content (source_file, content, note_date, catcode, catcodes, created_by) "
-            "VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
-            (source_file, content, note_date, catcode, catcodes, self.writer_uri)
+            "INSERT INTO content (source_file, content, note_date, catcode, catcodes, created_by, embedding) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id",
+            (source_file, content, note_date, catcode, catcodes, self.writer_uri, embedding)
         )
         content_id = cur.fetchone()[0]
         self.conn.commit()

@@ -72,6 +72,17 @@ def get_model():
         _model = SentenceTransformer(MODEL_NAME)
     return _model
 
+def embed_content(text):
+    """Embedding for a content blob, as a pgvector literal. Returns None if the
+    model is unavailable (e.g. a service identity without sentence-transformers)
+    so a write never fails on it; the caller reports what happened."""
+    try:
+        return str(get_model().encode(text).tolist())
+    except Exception as e:
+        print(f"  warning: no embedding generated ({e}); not reachable by search")
+        return None
+
+
 PG_HOST = os.getenv("PG_HOST", "10.0.0.100")
 PG_PORT = os.getenv("PG_PORT", "5432")
 PG_USER = os.getenv("PG_USER", "cobox")
@@ -635,7 +646,11 @@ def cmd_store(args):
         sys.exit(1)
 
     catcode = _resolve_catcode(writer, args)
-    content_id = writer.store_content(source_file, content, catcode=catcode)
+    # Without an embedding the blob is invisible to `abra search` (the vector
+    # query filters on `embedding IS NOT NULL`). Embed at write time.
+    embedding = embed_content(content)
+    content_id = writer.store_content(source_file, content, catcode=catcode,
+                                      embedding=embedding)
     qualifier = args.qualifier or "stored via cli"
 
     # Optional source_date so the entry appears in the reverse timeline
