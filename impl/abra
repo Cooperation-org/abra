@@ -21,6 +21,9 @@
 #   abra hot set <name> --days 90  Custom expiry
 #   abra hot unset <name>          Remove hot tag
 #
+# Maintenance:
+#   abra reindex                   Embed any blob missing an embedding
+#
 # For more complex queries, ask Claude:
 #   "use abra to find everyone I know in healthcare credentialing"
 

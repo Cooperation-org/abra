@@ -72,17 +72,6 @@ def get_model():
         _model = SentenceTransformer(MODEL_NAME)
     return _model
 
-def embed_content(text):
-    """Embedding for a content blob, as a pgvector literal. Returns None if the
-    model is unavailable (e.g. a service identity without sentence-transformers)
-    so a write never fails on it; the caller reports what happened."""
-    try:
-        return str(get_model().encode(text).tolist())
-    except Exception as e:
-        print(f"  warning: no embedding generated ({e}); not reachable by search")
-        return None
-
-
 PG_HOST = os.getenv("PG_HOST", "10.0.0.100")
 PG_PORT = os.getenv("PG_PORT", "5432")
 PG_USER = os.getenv("PG_USER", "cobox")
@@ -646,11 +635,9 @@ def cmd_store(args):
         sys.exit(1)
 
     catcode = _resolve_catcode(writer, args)
-    # Without an embedding the blob is invisible to `abra search` (the vector
-    # query filters on `embedding IS NOT NULL`). Embed at write time.
-    embedding = embed_content(content)
-    content_id = writer.store_content(source_file, content, catcode=catcode,
-                                      embedding=embedding)
+    # store_content embeds at write time; without an embedding the blob is
+    # invisible to `abra search` (the vector query filters embedding IS NOT NULL).
+    content_id = writer.store_content(source_file, content, catcode=catcode)
     qualifier = args.qualifier or "stored via cli"
 
     # Optional source_date so the entry appears in the reverse timeline
@@ -666,6 +653,33 @@ def cmd_store(args):
     dated = f" on {source_date}" if source_date else ""
     print(f"Stored content [{content_id}] and bound to {args.name} [{qualifier}] under {catcode}{dated}")
     writer.close()
+
+
+def cmd_reindex(args):
+    """Embed any content blob that has no embedding.
+
+    Rows with a NULL embedding are excluded from semantic search, so a blob
+    written by a path that could not embed (an importer, a service identity
+    without the model) is reachable only by name until this runs."""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT id, content FROM content WHERE embedding IS NULL ORDER BY id")
+    rows = [(cid, text) for cid, text in cur.fetchall() if text and text.strip()]
+    if not rows:
+        print("Nothing to reindex: every content blob has an embedding.")
+        return
+    print(f"{len(rows)} blobs without an embedding")
+    model = get_model()
+    for n, (cid, text) in enumerate(rows, 1):
+        cur.execute("UPDATE content SET embedding = %s WHERE id = %s",
+                    (str(model.encode(text).tolist()), cid))
+        if n % 100 == 0:
+            conn.commit()
+            print(f"  {n}/{len(rows)}")
+    conn.commit()
+    cur.execute("SELECT count(*) FROM content WHERE embedding IS NULL")
+    print(f"Reindexed {len(rows)}; {cur.fetchone()[0]} still without an embedding")
+    conn.close()
 
 
 def cmd_bind(args):
@@ -787,6 +801,10 @@ Write commands:
   abra hot set <name> --days 90  Custom expiry
   abra hot unset <name>          Remove hot tag
 
+Maintenance:
+  abra reindex                   Embed any blob missing an embedding
+                                 (unembedded blobs are invisible to search)
+
 Options:
   --scope SCOPE                  Scope (default: golda)
   --qualifier TEXT               Qualifier for store/bind
@@ -804,7 +822,7 @@ def main():
         sys.exit(0)
 
     # Check for unknown command before argparse to give a friendly message
-    valid_commands = {'who', 'about', 'when', 'search', 'related', 'refs', 'names', 'read', 'hot', 'store', 'bind'}
+    valid_commands = {'who', 'about', 'when', 'search', 'related', 'refs', 'names', 'read', 'hot', 'store', 'bind', 'reindex'}
     first_arg = sys.argv[1]
     if first_arg not in valid_commands and not first_arg.startswith('-'):
         print(f"Unknown command: '{first_arg}'\n")
@@ -873,6 +891,8 @@ def main():
     p_bind.add_argument('--cat', help='Category path under a registered root, e.g. untp/2026/june. Missing segments auto-create.')
     p_bind.add_argument('--catcode', help='Use an existing catcode directly, e.g. a00105')
 
+    sub.add_parser('reindex', help='Embed any content blob that has no embedding')
+
     args = parser.parse_args()
     if not args.command:
         print(HELP_TEXT)
@@ -895,7 +915,7 @@ def main():
         'who': cmd_who, 'about': cmd_about, 'when': cmd_when,
         'search': cmd_search, 'related': cmd_related, 'refs': cmd_refs,
         'names': cmd_names, 'read': cmd_read, 'hot': cmd_hot,
-        'store': cmd_store, 'bind': cmd_bind,
+        'store': cmd_store, 'bind': cmd_bind, 'reindex': cmd_reindex,
     }
     cmds[args.command](args)
 

@@ -59,6 +59,30 @@ def _default_writer_uri():
     return f"urn:abra:local:{user}"
 
 
+_model = None
+
+
+def embed(text):
+    """Embedding for a content blob, as a pgvector literal. Returns None when the
+    model is unavailable (a service identity without sentence-transformers, no
+    model cache) so a write never fails on it; `abra reindex` fills those in."""
+    global _model
+    if not text or not text.strip():
+        return None
+    try:
+        if _model is None:
+            import os
+            os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+            os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+            from sentence_transformers import SentenceTransformer
+            _model = SentenceTransformer(
+                os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2"))
+        return str(_model.encode(text).tolist())
+    except Exception as e:
+        print(f"  warning: no embedding ({e}); run `abra reindex` to make it searchable")
+        return None
+
+
 class AbraWriter:
     def __init__(self, writer_uri=None, dsn=None):
         """writer_uri identifies who is writing (provenance, per 2026-05 design).
@@ -81,8 +105,11 @@ class AbraWriter:
         """Store a content blob. Returns content ID.
         Populates both `catcode` (singular, legacy) and `catcodes` (array, current spec).
         Stamps created_by from self.writer_uri.
-        `embedding` is required for the blob to be reachable by semantic search:
-        rows with a NULL embedding are excluded from the vector query."""
+        An embedding is generated when one is not supplied: rows with a NULL
+        embedding are excluded from the vector query, so an unembedded blob is
+        reachable only by name, never by search."""
+        if embedding is None:
+            embedding = embed(content)
         cur = self.conn.cursor()
         catcodes = [catcode] if catcode else []
         cur.execute(
