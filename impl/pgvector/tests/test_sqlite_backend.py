@@ -67,6 +67,24 @@ def test_default_scope(tmp_path, monkeypatch, env_scope, yaml_text, expected):
     sources.reset_cache()
 
 
+@pytest.mark.parametrize("writer, expected", (
+    ("droid", "urn:abra:droid"),
+    ("claude", "urn:abra:claude"),
+    ("urn:abra:intake:vm-1", "urn:abra:intake:vm-1"),
+    (None, "urn:abra:from-env"),
+    ("", "urn:abra:from-env"),
+))
+def test_writer_uri(monkeypatch, writer, expected):
+    monkeypatch.setenv("ABRA_WRITER_URI", "urn:abra:from-env")
+    assert instance.writer_uri(writer) == expected
+
+
+@pytest.mark.parametrize("writer", ("Droid", "has space", "-x"))
+def test_writer_uri_rejects(writer):
+    with pytest.raises(ValueError):
+        instance.writer_uri(writer)
+
+
 def test_connect_refuses_missing_file(tmp_path):
     with pytest.raises(FileNotFoundError):
         db.connect(f"sqlite:///{tmp_path}/missing.db")
@@ -154,6 +172,10 @@ def test_cli_round_trip(cli):
         (("hot",), "No hot tags"),
         (("about", "ltq1", "--scope", "other"), "No names matching 'ltq1' in scope 'other'"),
         (("reindex",), "Nothing to reindex"),
+        (("bind", "ltq1", "RELATED", "lt", "--cat", "root/plans", "--writer", "droid"),
+         "Created binding 3"),
+        (("--writer", "claude", "store", "ltq1", "note", "--cat", "root/plans"),
+         "Stored content [2]"),
     )
     for args, expected in steps:
         assert expected in cli(*args), args
@@ -161,7 +183,10 @@ def test_cli_round_trip(cli):
     conn = db.connect(cli.url)
     cur = conn.cursor()
     cur.execute("SELECT scope, created_by, catcodes FROM bindings ORDER BY id")
-    assert cur.fetchall() == [("test-scope", "urn:abra:test", '["a001"]')] * 2
+    assert cur.fetchall() == [("test-scope", w, '["a001"]') for w in (
+        "urn:abra:test", "urn:abra:test", "urn:abra:droid", "urn:abra:claude")]
+    cur.execute("SELECT created_by FROM content ORDER BY id")
+    assert cur.fetchall() == [("urn:abra:test",), ("urn:abra:claude",)]
     cur.execute("SELECT label FROM catcode_registry WHERE catcode = 'a001'")
     assert cur.fetchone() == ("root/plans",)
     cur.execute("SELECT count(*) FROM labels WHERE label = 'hot'")

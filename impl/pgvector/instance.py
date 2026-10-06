@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import getpass
 import os
+import re
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -38,3 +39,14 @@ def default_scope() -> str:
 def default_writer_uri() -> str:
     """Provenance URI for writes: $ABRA_WRITER_URI, else urn:abra:local:<user>."""
     return os.getenv("ABRA_WRITER_URI") or f"urn:abra:local:{calling_user()}"
+
+
+def writer_uri(writer: str | None = None) -> str:
+    """Provenance URI for a named writer (e.g. 'droid' → urn:abra:droid).
+    A value containing ':' is taken as a full URI; None gives the default."""
+    if not writer:
+        return default_writer_uri()
+    writer = writer.strip()
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]*|[A-Za-z][A-Za-z0-9+.-]*:\S+", writer):
+        raise ValueError(f"invalid writer {writer!r}: use a short name like 'droid' or a full URI")
+    return writer if ":" in writer else f"urn:abra:{writer}"

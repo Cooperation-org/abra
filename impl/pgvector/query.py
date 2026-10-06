@@ -34,7 +34,7 @@ import argparse
 from datetime import datetime
 
 import db
-from instance import default_scope
+from instance import default_scope, writer_uri
 
 
 def get_model():
@@ -531,7 +531,7 @@ def _resolve_catcode(writer, args):
 def cmd_store(args):
     """Store a content blob and bind it to a name."""
     from write_binding import AbraWriter
-    writer = AbraWriter()
+    writer = AbraWriter(writer_uri=writer_uri(args.writer))
 
     # Read content from file or argument
     if args.file:
@@ -601,7 +601,7 @@ def cmd_reindex(args):
 def cmd_bind(args):
     """Create a binding between a name and a target."""
     from write_binding import AbraWriter
-    writer = AbraWriter()
+    writer = AbraWriter(writer_uri=writer_uri(args.writer))
 
     catcode = _resolve_catcode(writer, args)
     target_type = args.target_type or "text"
@@ -714,7 +714,12 @@ Options:
                                  ~/.abra/sources.yaml, else your login name)
   --qualifier TEXT               Qualifier for store/bind
   --cat PATH / --catcode CODE    Category for store/bind (required)
+  --writer NAME                  Who is writing, e.g. droid or claude
+                                 (created_by urn:abra:<NAME>; default:
+                                 $ABRA_WRITER_URI, else urn:abra:local:<login>)
 """.strip()
+
+WRITER_HELP = 'Who is writing, e.g. droid or claude (created_by urn:abra:<NAME>)'
 
 
 def main():
@@ -734,9 +739,11 @@ def main():
     parser = argparse.ArgumentParser(description='abra — query names, notes, and relationships',
                                      add_help=False)
     parser.add_argument('--scope', default=default_scope(), help='Scope to query')
+    parser.add_argument('--writer', default=None, help=WRITER_HELP)
     sub = parser.add_subparsers(dest='command')
 
     scope_kw = dict(default=argparse.SUPPRESS, help='Scope to query')
+    writer_kw = dict(default=argparse.SUPPRESS, help=WRITER_HELP)
 
     p_who = sub.add_parser('who', help='Find names by topic')
     p_who.add_argument('--scope', **scope_kw)
@@ -783,6 +790,7 @@ def main():
     p_store.add_argument('--cat', help='Category path under a registered root, e.g. untp/2026/june. Missing segments auto-create.')
     p_store.add_argument('--catcode', help='Use an existing catcode directly, e.g. a00105')
     p_store.add_argument('--date', help='Source date (YYYY-MM-DD) for the timeline (abra when). Use "today" for today.')
+    p_store.add_argument('--writer', **writer_kw)
 
     p_bind = sub.add_parser('bind', help='Create a binding')
     p_bind.add_argument('--scope', **scope_kw)
@@ -793,6 +801,7 @@ def main():
     p_bind.add_argument('--qualifier', help='Qualifier text')
     p_bind.add_argument('--cat', help='Category path under a registered root, e.g. untp/2026/june. Missing segments auto-create.')
     p_bind.add_argument('--catcode', help='Use an existing catcode directly, e.g. a00105')
+    p_bind.add_argument('--writer', **writer_kw)
 
     sub.add_parser('reindex', help='Embed any content blob that has no embedding')
 
