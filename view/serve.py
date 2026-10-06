@@ -51,6 +51,8 @@ ENV_PATH = ROOT / "impl" / ".env"
 # migration 001). We never INSERT bindings via direct SQL.
 sys.path.insert(0, str(ROOT / "impl" / "pgvector"))
 from write_binding import AbraWriter  # noqa: E402
+import db  # noqa: E402
+from instance import calling_user, default_scope, default_writer_uri  # noqa: E402
 
 
 def _load_env(path: Path) -> None:
@@ -70,13 +72,7 @@ def _load_env(path: Path) -> None:
 
 _load_env(ENV_PATH)
 
-PG = dict(
-    host=os.getenv("PG_HOST", "10.0.0.100"),
-    port=os.getenv("PG_PORT", "5432"),
-    user=os.getenv("PG_USER", "cobox"),
-    password=os.getenv("PG_PASSWORD", ""),
-    dbname=os.getenv("PG_DATABASE", "abra"),
-)
+PG = db.pg_params()
 PORT = int(os.getenv("ABRA_VIEW_PORT", "8089"))
 # Empty when accessed directly on the port; "/abra-view" when behind the
 # team's nginx path-prefix proxy. The app generates URLs with this prefix
@@ -152,7 +148,7 @@ def db_delete(code: str) -> None:
 
 # ── Bindings browse — read-only ──────────────────────────────────────────
 # Default scope is configurable; future change is a scope picker in the UI.
-SCOPE = os.getenv("ABRA_VIEW_SCOPE", "golda")
+SCOPE = os.getenv("ABRA_VIEW_SCOPE") or default_scope()
 # Read scope list (sibling roots in the tree). ABRA_VIEW_SCOPES wins when
 # set; otherwise just the single SCOPE. Writes still target SCOPE alone.
 SCOPES = [
@@ -164,11 +160,11 @@ SCOPES = [
 # Writer URI for this user. Mirrors the AbraWriter default so view-side
 # signals (e.g. user_signal scores) share the same identity as binding
 # writes. Real auth replaces this with the actual logged-in user URI.
-USER_URI = os.getenv("ABRA_WRITER_URI", f"urn:abra:local:{os.getenv('USER', 'golda')}")
+USER_URI = default_writer_uri()
 
 # The catcode under which the home tree renders by default. Today's
 # convention: `a001` ("version 0") holds the user's top-level subtrees
-# (golda, gitonga, linkedtrust, ...). Reserved roots (`01` Dewey, `02`
+# (one per user or team). Reserved roots (`01` Dewey, `02`
 # Wikidata, `a0` user-defined root) are still queryable, just not the
 # default home. When auth + per-user config land, this moves into
 # `user_config` keyed by the user URI.
@@ -208,7 +204,7 @@ if not _JWT_SECRET:
 DEV_USER = {
     "user_id": int(os.getenv("ABRA_VIEW_DEV_USER_ID", "1")),
     "org_id":  int(os.getenv("ABRA_VIEW_DEV_ORG_ID",  "1")),
-    "email":   os.getenv("ABRA_VIEW_DEV_EMAIL",       "golda@example.com"),
+    "email":   os.getenv("ABRA_VIEW_DEV_EMAIL",       f"{calling_user()}@example.com"),
     "role":    os.getenv("ABRA_VIEW_DEV_ROLE",        "admin"),
 }
 
@@ -430,10 +426,10 @@ UI_PREFS: dict[str, str] = {
     "ui.hide-col.from": "hide-from",
 }
 
-# Defaults are empty. Nothing on the screen is from me; if Golda hasn't
-# named a piece of chrome, it shows as a minimal click affordance only
-# (a colour dot for tabs, a thin marker for the edit toggle). She names
-# them in edit mode and they appear; until then, only her data shows.
+# Defaults are empty. Nothing on the screen is app text; chrome the user
+# hasn't named shows as a minimal click affordance only (a colour dot for
+# tabs, a thin marker for the edit toggle). The user names them in edit
+# mode and they appear; until then, only the user's data shows.
 VIEW_DEFAULTS: dict[str, str] = {
     "tab.categories":          "",
     "tab.bindings":            "",
@@ -696,7 +692,7 @@ def link_for_category(code: str, label: str) -> str:
 
 def row_html(code: str, label: str) -> str:
     """One node's row (not its children) — the unit that edit returns to.
-    Display only the tail of the slash-path (`golda/contacts` → `contacts`):
+    Display only the tail of the slash-path (`<scope>/contacts` → `contacts`):
     the parent context is already visible in the tree indent. The stored
     label keeps its full path; the edit form (separate) shows the full
     value for renaming."""

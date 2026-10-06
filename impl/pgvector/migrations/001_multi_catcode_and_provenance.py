@@ -10,7 +10,7 @@ Adds (additively, no drops):
 
   GIN indexes on the new array columns.
 
-Backfill rules (per Golda 2026-05-29):
+Backfill rules:
 
   - catcodes  = ARRAY[catcode]  WHERE catcode IS NOT NULL  ELSE '{}'
   - created_by = 'urn:abra:legacy-import'  for all existing rows
@@ -31,23 +31,16 @@ Run:
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from pathlib import Path
 
 import psycopg2
-from dotenv import load_dotenv
 
 HERE = Path(__file__).resolve().parent
-load_dotenv(HERE / ".." / ".." / ".env")
+sys.path.insert(0, str(HERE.parent))
+import db  # noqa: E402
 
-PG = dict(
-    host=os.getenv("PG_HOST", "10.0.0.100"),
-    port=os.getenv("PG_PORT", "5432"),
-    user=os.getenv("PG_USER", "cobox"),
-    password=os.getenv("PG_PASSWORD", ""),
-    dbname=os.getenv("PG_DATABASE", "abra"),
-)
+PG = db.pg_params()
 
 LEGACY_WRITER_URI = "urn:abra:legacy-import"
 

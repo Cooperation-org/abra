@@ -2,23 +2,150 @@
 """
 Initialize abra database with bindings + content tables.
 Schema matches binding-format-v0.1.md spec.
+
+Backend follows db.py: ABRA_DATABASE_URL=sqlite:///<path> creates the full
+current schema in a SQLite file; otherwise PostgreSQL from PG_* vars, then
+run migrations/ in order.
 """
 import os
 import sys
-import psycopg2
-from dotenv import load_dotenv
 
-load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
+import db
 
-PG_HOST = os.getenv("PG_HOST", "10.0.0.100")
-PG_PORT = os.getenv("PG_PORT", "5432")
-PG_USER = os.getenv("PG_USER", "cobox")
-PG_PASSWORD = os.getenv("PG_PASSWORD", "")
-PG_DATABASE = os.getenv("PG_DATABASE", "abra")
 EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "384"))
+
+# SQLite equivalent of setup_postgres() plus migrations 001-003. Timestamps are
+# local-time text; catcodes are JSON arrays; embeddings are float32 blobs.
+SQLITE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS catcode_registry (
+    catcode TEXT PRIMARY KEY CHECK (length(catcode) <= 64),
+    parent_catcode TEXT REFERENCES catcode_registry(catcode) ON DELETE CASCADE,
+    label TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT (datetime('now', 'localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_catcode_parent ON catcode_registry (parent_catcode);
+
+CREATE TABLE IF NOT EXISTS content (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_file TEXT,
+    content TEXT NOT NULL,
+    embedding BLOB,
+    note_date DATE,
+    catcode TEXT,
+    catcodes TEXT,
+    created_by TEXT,
+    created_at TIMESTAMP DEFAULT (datetime('now', 'localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_content_note_date ON content (note_date);
+CREATE INDEX IF NOT EXISTS idx_content_catcode ON content (catcode);
+
+CREATE TABLE IF NOT EXISTS bindings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    scope TEXT NOT NULL,
+    name TEXT NOT NULL,
+    relationship TEXT NOT NULL,
+    target_type TEXT NOT NULL,
+    target_ref TEXT NOT NULL,
+    qualifier TEXT,
+    permanence TEXT DEFAULT 'CURRENT',
+    source_date DATE,
+    catcode TEXT,
+    catcodes TEXT,
+    created_by TEXT,
+    created_at TIMESTAMP DEFAULT (datetime('now', 'localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_bindings_scope_name ON bindings (scope, name);
+CREATE INDEX IF NOT EXISTS idx_bindings_relationship ON bindings (relationship);
+CREATE INDEX IF NOT EXISTS idx_bindings_target ON bindings (target_type, target_ref);
+CREATE INDEX IF NOT EXISTS idx_bindings_source_date ON bindings (source_date);
+CREATE INDEX IF NOT EXISTS idx_bindings_catcode ON bindings (catcode);
+
+CREATE TABLE IF NOT EXISTS hot_tags (
+    scope TEXT NOT NULL,
+    name TEXT NOT NULL,
+    priority INTEGER DEFAULT 0,
+    added_at TIMESTAMP DEFAULT (datetime('now', 'localtime')),
+    expires_at TIMESTAMP,
+    PRIMARY KEY (scope, name)
+);
+
+CREATE TABLE IF NOT EXISTS user_config (
+    user_uri TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    updated_at TIMESTAMP NOT NULL DEFAULT (datetime('now', 'localtime')),
+    PRIMARY KEY (user_uri, key)
+);
+
+CREATE TABLE IF NOT EXISTS user_signal (
+    user_uri TEXT NOT NULL,
+    scope TEXT NOT NULL,
+    name TEXT NOT NULL,
+    score_kind TEXT NOT NULL,
+    value REAL NOT NULL,
+    updated_at TIMESTAMP NOT NULL DEFAULT (datetime('now', 'localtime')),
+    PRIMARY KEY (user_uri, scope, name, score_kind)
+);
+CREATE INDEX IF NOT EXISTS idx_user_signal_rank
+    ON user_signal (user_uri, scope, score_kind, value DESC);
+
+CREATE TABLE IF NOT EXISTS labels (
+    scope TEXT NOT NULL,
+    name TEXT NOT NULL,
+    label TEXT NOT NULL,
+    added_by TEXT NOT NULL,
+    added_at TIMESTAMP NOT NULL DEFAULT (datetime('now', 'localtime')),
+    expires_at TIMESTAMP,
+    PRIMARY KEY (scope, name, label)
+);
+CREATE INDEX IF NOT EXISTS idx_labels_label ON labels (label);
+CREATE INDEX IF NOT EXISTS idx_labels_scope_name ON labels (scope, name);
+
+-- hot_tags mirrors into labels as label='hot' (migration 003 bridge)
+CREATE TRIGGER IF NOT EXISTS hot_tag_bridge_insert AFTER INSERT ON hot_tags
+BEGIN
+    INSERT INTO labels (scope, name, label, added_by, added_at, expires_at)
+    VALUES (NEW.scope, NEW.name, 'hot', 'urn:abra:hot-tag-bridge', NEW.added_at, NEW.expires_at)
+    ON CONFLICT (scope, name, label) DO UPDATE
+        SET added_at = excluded.added_at, expires_at = excluded.expires_at;
+END;
+CREATE TRIGGER IF NOT EXISTS hot_tag_bridge_update AFTER UPDATE ON hot_tags
+BEGIN
+    INSERT INTO labels (scope, name, label, added_by, added_at, expires_at)
+    VALUES (NEW.scope, NEW.name, 'hot', 'urn:abra:hot-tag-bridge', NEW.added_at, NEW.expires_at)
+    ON CONFLICT (scope, name, label) DO UPDATE
+        SET added_at = excluded.added_at, expires_at = excluded.expires_at;
+END;
+CREATE TRIGGER IF NOT EXISTS hot_tag_bridge_delete AFTER DELETE ON hot_tags
+BEGIN
+    DELETE FROM labels WHERE scope = OLD.scope AND name = OLD.name AND label = 'hot';
+END;
+"""
 
 
 def setup():
+    if db.is_sqlite():
+        setup_sqlite()
+    else:
+        setup_postgres()
+
+
+def setup_sqlite():
+    path = db.sqlite_path()
+    print(f"Opening SQLite database at {path}...")
+    conn = db.connect(create=True)
+    conn.executescript(SQLITE_SCHEMA)
+    conn.commit()
+    conn.close()
+    print(f"\nDatabase ready: {path}")
+
+
+def setup_postgres():
+    import psycopg2
+    pg = db.pg_params()
+    PG_HOST, PG_PORT, PG_USER = pg["host"], pg["port"], pg["user"]
+    PG_PASSWORD, PG_DATABASE = pg["password"], pg["dbname"]
+
     # Connect to postgres to create database if needed
     print(f"Connecting to PostgreSQL at {PG_HOST}...")
     conn = psycopg2.connect(

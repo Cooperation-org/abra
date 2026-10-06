@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Migration 003 — labels on names (unifying primitive), hot_tags folds in.
 
-Per Golda 2026-05-29 (after the view session's architectural input on
-labels): labels attach to **names**, not bindings. The `hot_tags` table
+Labels attach to **names**, not bindings. The `hot_tags` table
 becomes a special case — `labels` with `label='hot'`.
 
 What this migration does (additive + one bridge trigger + one drop):
@@ -43,18 +42,12 @@ import sys
 from pathlib import Path
 
 import psycopg2
-from dotenv import load_dotenv
 
 HERE = Path(__file__).resolve().parent
-load_dotenv(HERE / ".." / ".." / ".env")
+sys.path.insert(0, str(HERE.parent))
+import db  # noqa: E402
 
-PG = dict(
-    host=os.getenv("PG_HOST", "10.0.0.100"),
-    port=os.getenv("PG_PORT", "5432"),
-    user=os.getenv("PG_USER", "cobox"),
-    password=os.getenv("PG_PASSWORD", ""),
-    dbname=os.getenv("PG_DATABASE", "abra"),
-)
+PG = db.pg_params()
 
 HOT_TAG_BRIDGE_URI = "urn:abra:hot-tag-bridge"
 

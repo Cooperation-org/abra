@@ -1,39 +1,30 @@
 #!/usr/bin/env python3
 """
-Write bindings and content directly to abra pgvector store, one at a time.
+Write bindings and content directly to the abra store, one at a time.
 
 Usage from a processing session:
     from write_binding import AbraWriter
     writer = AbraWriter()
 
     # Store a note blob
-    content_id = writer.store_content("1-20-26-leanne.txt", "note text...", note_date="2026-01-20")
+    content_id = writer.store_content("1-20-26-q1-plan.txt", "note text...", note_date="2026-01-20")
 
     # Create bindings
-    writer.write_binding("golda", "leanne-ussher", "IS", "text", "Leanne Ussher", permanence="INTRINSIC")
-    writer.write_binding("golda", "leanne-ussher", "ABOUT", "content", str(content_id), qualifier="meeting notes")
-    writer.write_binding("golda", "lt", "RELATED", "content", str(content_id), qualifier="contact - currency design")
+    writer.write_binding(scope, "ltq1", "IS", "text", "Q1 plan", permanence="INTRINSIC")
+    writer.write_binding(scope, "ltq1", "ABOUT", "content", str(content_id), qualifier="planning notes")
 
     # Check if a name already exists
-    existing = writer.find_name("golda", "leanne")  # returns list of matching names
+    existing = writer.find_name(scope, "ltq")  # returns list of matching names
 
 Also usable as CLI:
-    python write_binding.py --scope golda --name leanne-ussher --rel IS --target-type text --target-ref "Leanne Ussher"
+    python write_binding.py --scope <scope> --name ltq1 --rel IS --target-type text --target-ref "Q1 plan"
 """
 import os
 import re
-import sys
 import argparse
-import psycopg2
-from dotenv import load_dotenv
 
-load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
-
-PG_HOST = os.getenv("PG_HOST", "10.0.0.100")
-PG_PORT = os.getenv("PG_PORT", "5432")
-PG_USER = os.getenv("PG_USER", "cobox")
-PG_PASSWORD = os.getenv("PG_PASSWORD", "")
-PG_DATABASE = os.getenv("PG_DATABASE", "abra")
+import db
+from instance import default_writer_uri
 
 PII_PATTERNS = [
     re.compile(r'[\w.+-]+@[\w-]+\.[\w.-]+'),
@@ -49,35 +40,30 @@ def check_pii(text):
     return False
 
 
-def _default_writer_uri():
-    """URI representing the writer when none is supplied.
-    Looks up env ABRA_WRITER_URI first, falls back to urn:abra:local:<USER>."""
-    env = os.getenv("ABRA_WRITER_URI")
-    if env:
-        return env
-    user = os.getenv("USER") or os.getenv("USERNAME") or "unknown"
-    return f"urn:abra:local:{user}"
-
-
 _model = None
 
 
+def get_model():
+    """Lazy-load the sentence-transformers embedding model."""
+    global _model
+    if _model is None:
+        os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+        os.environ.setdefault("HF_HUB_VERBOSITY", "error")
+        os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
+        os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+        from sentence_transformers import SentenceTransformer
+        _model = SentenceTransformer(os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2"))
+    return _model
+
+
 def embed(text):
-    """Embedding for a content blob, as a pgvector literal. Returns None when the
+    """Embedding for a content blob as a list of floats. Returns None when the
     model is unavailable (a service identity without sentence-transformers, no
     model cache) so a write never fails on it; `abra reindex` fills those in."""
-    global _model
     if not text or not text.strip():
         return None
     try:
-        if _model is None:
-            import os
-            os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
-            os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
-            from sentence_transformers import SentenceTransformer
-            _model = SentenceTransformer(
-                os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2"))
-        return str(_model.encode(text).tolist())
+        return get_model().encode(text).tolist()
     except Exception as e:
         print(f"  warning: no embedding ({e}); run `abra reindex` to make it searchable")
         return None
@@ -85,29 +71,24 @@ def embed(text):
 
 class AbraWriter:
     def __init__(self, writer_uri=None, dsn=None):
-        """writer_uri identifies who is writing (provenance, per 2026-05 design).
-        Defaults to ABRA_WRITER_URI env or urn:abra:local:<USER>.
+        """writer_uri identifies who is writing (provenance).
+        Defaults to ABRA_WRITER_URI env or urn:abra:local:<user>.
 
-        dsn lets callers from another repo (e.g. amebo) pass an explicit
-        connection string and avoid relying on this module's .env. If
-        omitted, falls back to PG_* env vars (legacy default)."""
-        self.writer_uri = writer_uri or _default_writer_uri()
-        if dsn:
-            self.conn = psycopg2.connect(dsn)
-        else:
-            self.conn = psycopg2.connect(
-                host=PG_HOST, port=PG_PORT, user=PG_USER,
-                password=PG_PASSWORD, dbname=PG_DATABASE
-            )
+        dsn: explicit connection URL (postgresql://... or sqlite:///...), for
+        callers that do not rely on this module's .env. If omitted, uses
+        ABRA_DATABASE_URL, else PG_* vars."""
+        self.writer_uri = writer_uri or default_writer_uri()
+        self.conn = db.connect(dsn or None)
+        self.dialect = db.dialect(dsn or None)
 
     def store_content(self, source_file, content, note_date=None, catcode=None,
                       embedding=None):
         """Store a content blob. Returns content ID.
         Populates both `catcode` (singular, legacy) and `catcodes` (array, current spec).
         Stamps created_by from self.writer_uri.
-        An embedding is generated when one is not supplied: rows with a NULL
-        embedding are excluded from the vector query, so an unembedded blob is
-        reachable only by name, never by search."""
+        An embedding (list of floats) is generated when one is not supplied: rows
+        with a NULL embedding are excluded from the vector query, so an unembedded
+        blob is reachable only by name, never by search."""
         if embedding is None:
             embedding = embed(content)
         cur = self.conn.cursor()
@@ -115,7 +96,8 @@ class AbraWriter:
         cur.execute(
             "INSERT INTO content (source_file, content, note_date, catcode, catcodes, created_by, embedding) "
             "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id",
-            (source_file, content, note_date, catcode, catcodes, self.writer_uri, embedding)
+            (source_file, content, note_date, catcode, self.dialect.array(catcodes),
+             self.writer_uri, self.dialect.vector(embedding))
         )
         content_id = cur.fetchone()[0]
         self.conn.commit()
@@ -125,11 +107,11 @@ class AbraWriter:
     def write_binding(self, scope, name, rel=None, target_type=None, target_ref=None,
                       qualifier=None, permanence="CURRENT", source_date=None, catcode=None,
                       relationship=None):
-        # accept either 'rel' or 'relationship'
-        relationship = rel or relationship
         """Write a single binding. Rejects PII in target_ref.
+        Accepts the relationship as `rel` or `relationship`.
         Populates both `catcode` (legacy) and `catcodes` (array, current spec).
         Stamps created_by from self.writer_uri."""
+        relationship = rel or relationship
         if check_pii(target_ref):
             print(f"  REJECTED (PII detected): {name} {relationship} {target_ref[:40]}...")
             return None
@@ -142,7 +124,8 @@ class AbraWriter:
                 source_date, catcode, catcodes, created_by)
                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
             (scope, name, relationship, target_type, target_ref,
-             qualifier, permanence, source_date, catcode, catcodes, self.writer_uri)
+             qualifier, permanence, source_date, catcode, self.dialect.array(catcodes),
+             self.writer_uri)
         )
         binding_id = cur.fetchone()[0]
         self.conn.commit()
@@ -222,13 +205,14 @@ class AbraWriter:
     def set_hot(self, scope, name, priority=0, days=30):
         """Mark a name as hot in a scope. Expires after `days` days (default 30)."""
         cur = self.conn.cursor()
+        d = self.dialect
         cur.execute(
-            """INSERT INTO hot_tags (scope, name, priority, expires_at)
-               VALUES (%s, %s, %s, NOW() + make_interval(days => %s))
+            f"""INSERT INTO hot_tags (scope, name, priority, expires_at)
+               VALUES (%s, %s, %s, {d.now_plus_days()})
                ON CONFLICT (scope, name) DO UPDATE SET
                    priority = EXCLUDED.priority,
                    expires_at = EXCLUDED.expires_at,
-                   added_at = NOW()""",
+                   added_at = {d.now}""",
             (scope, name, priority, days)
         )
         self.conn.commit()
@@ -252,11 +236,11 @@ class AbraWriter:
             raise ValueError("label must be a non-empty string")
         cur = self.conn.cursor()
         cur.execute(
-            """INSERT INTO labels (scope, name, label, added_by, expires_at)
+            f"""INSERT INTO labels (scope, name, label, added_by, expires_at)
                VALUES (%s, %s, %s, %s, %s)
                ON CONFLICT (scope, name, label) DO UPDATE SET
                    added_by = EXCLUDED.added_by,
-                   added_at = NOW(),
+                   added_at = {self.dialect.now},
                    expires_at = EXCLUDED.expires_at""",
             (scope, name, label, self.writer_uri, expires_at)
         )

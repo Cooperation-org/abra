@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
-# abra — query and write contacts, notes, and relationships
+# abra — query and write names, notes, and relationships
 #
 # Read:
-#   abra who "credentials"         Find people by topic
-#   abra about eric-shepherd       Everything known about a name
+#   abra who "credentials"         Find names by topic
+#   abra about ltq1                Everything known about a name
 #   abra when 2025-10              Who did I meet that month?
 #   abra search "cooperative"      Search note content
-#   abra related linkedtrust       Who is related to X?
-#   abra refs                      List LT reference docs
-#   abra names kevin               Browse names by prefix
+#   abra related ltq1              Who is related to X?
+#   abra refs                      List ABOUT bindings in the scope by date
+#   abra names lt                  Browse names by prefix
 #   abra hot                       List hot tags (warm context)
-#   abra hot alonovo               Show hot tag definition
-#   abra read bobbi-vernon         Read full note content
+#   abra hot ltq1                  Show hot tag definition
+#   abra read ltq1                 Read full note content
 #
 # Write:
-#   abra store <name> "text"       Store content and bind to a name
-#   abra store <name> -f file.txt  Store content from a file
-#   abra bind <name> IS "Full Name"   Create a binding
+#   abra store <name> "text" --cat <path>     Store content and bind to a name
+#   abra store <name> -f file.txt --cat <path>
+#   abra bind <name> IS "Full Name" --cat <path>
 #   abra hot set <name>            Mark as hot (30 day expiry)
 #   abra hot set <name> --days 90  Custom expiry
 #   abra hot unset <name>          Remove hot tag
@@ -24,16 +24,33 @@
 # Maintenance:
 #   abra reindex                   Embed any blob missing an embedding
 #
-# For more complex queries, ask Claude:
-#   "use abra to find everyone I know in healthcare credentialing"
+# impl dir: $ABRA_DIR, else this script's own dir (symlinks resolved),
+# else /opt/shared/repos/abra/impl.
 
-ABRA_DIR="/opt/shared/repos/abra/impl"
+resolve_script_dir() {
+    local src="${BASH_SOURCE[0]}" dir
+    while [ -L "$src" ]; do
+        dir="$(cd -P "$(dirname "$src")" && pwd)"
+        src="$(readlink "$src")"
+        [[ "$src" != /* ]] && src="$dir/$src"
+    done
+    cd -P "$(dirname "$src")" && pwd
+}
+
+if [ -z "$ABRA_DIR" ]; then
+    SCRIPT_DIR="$(resolve_script_dir)"
+    if [ -f "$SCRIPT_DIR/pgvector/query.py" ]; then
+        ABRA_DIR="$SCRIPT_DIR"
+    else
+        ABRA_DIR="/opt/shared/repos/abra/impl"
+    fi
+fi
 PYTHON="$ABRA_DIR/.venv/bin/python"
 QUERY="$ABRA_DIR/pgvector/query.py"
 
 if [ ! -f "$PYTHON" ]; then
     echo "Error: abra venv not found at $ABRA_DIR/.venv" >&2
-    echo "Run: cd $ABRA_DIR && python3 -m venv .venv && .venv/bin/pip install psycopg2-binary python-dotenv" >&2
+    echo "Run: cd $ABRA_DIR && python3 -m venv .venv && .venv/bin/pip install -r pgvector/requirements.txt" >&2
     exit 1
 fi
 

@@ -17,7 +17,7 @@ This implementation may be replaced, but write clean code with best practices. T
 
 ## Implementation
 
-PostgreSQL + pgvector. Stores content blobs and bindings. **No PII.**
+PostgreSQL + pgvector (default), or SQLite via `ABRA_DATABASE_URL=sqlite:///<path>` (`db.py`). Stores content blobs and bindings. **No PII.**
 
 - Tables: `content` (blobs + embeddings + catcode), `bindings` (the core + catcode), `catcode_registry` (tree of positions)
 - Schema: `setup_db.py` (run once to initialize)

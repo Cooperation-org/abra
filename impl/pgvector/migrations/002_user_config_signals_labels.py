@@ -14,11 +14,11 @@ Adds three additive tables (no impact on existing tables):
 
   binding_labels(binding_id, label, added_by, added_at)
       Free-language labels on bindings. User vocabulary: 'todo', 'goal',
-      'urgent', 'for-jen', whatever. Drives view-side grouping, tabs,
+      'urgent', 'for-review', whatever. Drives view-side grouping, tabs,
       filters — without any hardcoded primitive for todo-ness or
       goal-ness. Labels emerge from use.
 
-Per Golda 2026-05-29: "we can use language" — labels are pure strings,
+Labels are pure strings (language),
 not enums, not URIs, not catcodes. View can group, filter, render
 however it wants; the data model just stores.
 
@@ -37,18 +37,12 @@ import sys
 from pathlib import Path
 
 import psycopg2
-from dotenv import load_dotenv
 
 HERE = Path(__file__).resolve().parent
-load_dotenv(HERE / ".." / ".." / ".env")
+sys.path.insert(0, str(HERE.parent))
+import db  # noqa: E402
 
-PG = dict(
-    host=os.getenv("PG_HOST", "10.0.0.100"),
-    port=os.getenv("PG_PORT", "5432"),
-    user=os.getenv("PG_USER", "cobox"),
-    password=os.getenv("PG_PASSWORD", ""),
-    dbname=os.getenv("PG_DATABASE", "abra"),
-)
+PG = db.pg_params()
 
 
 def table_exists(cur, name: str) -> bool:

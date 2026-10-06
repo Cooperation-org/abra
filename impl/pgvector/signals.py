@@ -27,23 +27,13 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
-import sys
 from contextlib import contextmanager
-from pathlib import Path
 
 import psycopg2
-from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+import db
 
-PG = dict(
-    host=os.getenv("PG_HOST", "10.0.0.100"),
-    port=os.getenv("PG_PORT", "5432"),
-    user=os.getenv("PG_USER", "abra_user"),
-    password=os.getenv("PG_PASSWORD", ""),
-    dbname=os.getenv("PG_DATABASE", "abra"),
-)
+PG = db.pg_params(default_user="abra_user")
 
 VALID_SCORE_KINDS = frozenset({"now", "long"})
 

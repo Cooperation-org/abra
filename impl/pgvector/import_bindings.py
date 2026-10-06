@@ -2,36 +2,36 @@
 """
 Import bindings from a JSON staging file into the abra database.
 
-IMPORTANT: No PII (email, phone, address) in pgvector. Contact details go to CRM only.
+IMPORTANT: No PII (email, phone, address) in the binding store. Contact details go to CRM only.
 
 Staging file format (array of entries):
 [
   {
-    "source_file": "1-20-26-leanne-ussher.txt",
+    "source_file": "1-20-26-q1-plan.txt",
     "content": "full text of the note (PII stripped)...",
     "note_date": "2026-01-20",
     "bindings": [
       {
-        "scope": "golda",
-        "name": "leanne-ussher",
+        "scope": "<scope>",
+        "name": "ltq1",
         "relationship": "IS",
         "target_type": "text",
-        "target_ref": "Leanne Ussher",
+        "target_ref": "Q1 plan",
         "qualifier": null,
         "permanence": "INTRINSIC"
       },
       {
-        "scope": "golda",
-        "name": "leanne-ussher",
+        "scope": "<scope>",
+        "name": "ltq1",
         "relationship": "ABOUT",
         "target_type": "content",
         "target_ref": "__CONTENT_ID__",
-        "qualifier": "meeting notes",
+        "qualifier": "planning notes",
         "permanence": "CURRENT"
       },
       {
-        "scope": "golda",
-        "name": "leanne-ussher",
+        "scope": "<scope>",
+        "name": "ltq1",
         "relationship": "HAS",
         "target_type": "text",
         "target_ref": "contact:pending-crm",
@@ -39,7 +39,7 @@ Staging file format (array of entries):
         "permanence": "CURRENT"
       },
       {
-        "scope": "golda",
+        "scope": "<scope>",
         "name": "lt",
         "relationship": "RELATED",
         "target_type": "content",
@@ -53,36 +53,11 @@ Staging file format (array of entries):
 
 target_ref of "__CONTENT_ID__" gets replaced with the actual content.id after insertion.
 """
-import os
-import re
-import sys
 import json
 import argparse
-import psycopg2
-from dotenv import load_dotenv
 
-load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
-
-PG_HOST = os.getenv("PG_HOST", "10.0.0.100")
-PG_PORT = os.getenv("PG_PORT", "5432")
-PG_USER = os.getenv("PG_USER", "cobox")
-PG_PASSWORD = os.getenv("PG_PASSWORD", "")
-PG_DATABASE = os.getenv("PG_DATABASE", "abra")
-
-# Patterns that suggest PII in a binding target_ref
-PII_PATTERNS = [
-    re.compile(r'[\w.+-]+@[\w-]+\.[\w.-]+'),  # email
-    re.compile(r'\b\d{3}[-.]?\d{3}[-.]?\d{4}\b'),  # phone
-    re.compile(r'\b\d{5}(-\d{4})?\b'),  # zip code
-]
-
-
-def check_pii(target_ref):
-    """Return True if target_ref appears to contain PII."""
-    for pattern in PII_PATTERNS:
-        if pattern.search(target_ref):
-            return True
-    return False
+import db
+from write_binding import check_pii
 
 
 def import_staging(staging_file, dry_run=False):
@@ -105,13 +80,11 @@ def import_staging(staging_file, dry_run=False):
         if pii_warnings:
             print(f"\n  WARNING: {len(pii_warnings)} bindings contain PII and will be skipped on import.")
             print("  PII belongs in the CRM, not pgvector. Use 'contact:pending-crm' instead.")
-        print(f"\nDry run — nothing written. Use --confirm to import.")
+        print("\nDry run — nothing written. Use --confirm to import.")
         return
 
-    conn = psycopg2.connect(
-        host=PG_HOST, port=PG_PORT, user=PG_USER,
-        password=PG_PASSWORD, dbname=PG_DATABASE
-    )
+    d = db.dialect()
+    conn = db.connect()
     cur = conn.cursor()
 
     imported = 0
@@ -145,7 +118,7 @@ def import_staging(staging_file, dry_run=False):
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 (b['scope'], b['name'], b['relationship'], b['target_type'],
                  target_ref, b.get('qualifier'), b.get('permanence', 'CURRENT'),
-                 entry.get('note_date'), catcode, catcodes,
+                 entry.get('note_date'), catcode, d.array(catcodes),
                  b.get('created_by', 'urn:abra:import:staged-bindings'))
             )
 

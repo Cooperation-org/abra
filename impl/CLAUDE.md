@@ -13,7 +13,9 @@ learnings.md in this directory captures what we learn across implementations.
 ## Shared resources (impl level)
 
 - **`.venv/`** — Python virtual environment shared by all impl code. Run with `.venv/bin/python`.
-- **`.env`** — all secrets and connection config (PG creds, ODOO_API_KEY). Gitignored. Never commit.
+- **`.env`** — all secrets and connection config (PG creds, ODOO_API_KEY). Gitignored. Never commit. Template: `pgvector/.env.example`.
+- **Backend** — PostgreSQL + pgvector by default (PG_* vars). `ABRA_DATABASE_URL=sqlite:///~/.abra/abra.db` uses a local SQLite file instead (CLI, writer, setup_db). The view server, signals, and migrations are PostgreSQL only. See `pgvector/db.py`.
+- **Default scope** — `$ABRA_SCOPE`, else `scope:` in `~/.abra/sources.yaml`, else the login name. See `pgvector/instance.py`.
 - **`import_linkedin.py`** — bulk import LinkedIn/Google contacts to Odoo + pgvector. Dry run by default, `--confirm` to write.
 
 ## Directory layout
@@ -40,15 +42,18 @@ All scripts use the shared venv and .env:
 ```bash
 cd /opt/shared/repos/abra/impl
 
-# Initialize database (first time only)
+# Initialize database (first time only; SQLite or PostgreSQL per ABRA_DATABASE_URL)
 .venv/bin/python pgvector/setup_db.py
+
+# Tests (SQLite backend + CLI)
+.venv/bin/python -m pytest pgvector/tests
 
 # Import LinkedIn + Google contacts (dry run first)
 .venv/bin/python import_linkedin.py ~/Connections.csv ~/Contacts.csv
 .venv/bin/python import_linkedin.py ~/Connections.csv ~/Contacts.csv --confirm
 
 # Write a single binding
-.venv/bin/python pgvector/write_binding.py --scope golda --name peter --rel IS --target-type text --target-ref "Peter Smith"
+.venv/bin/python pgvector/write_binding.py --scope <scope> --name peter --rel IS --target-type text --target-ref "Peter Smith"
 
 # Query bindings (anyone on the team can use these)
 .venv/bin/python pgvector/query.py who "credentials"       # find people by topic
@@ -57,7 +62,7 @@ cd /opt/shared/repos/abra/impl
 .venv/bin/python pgvector/query.py when 2025-07 2025-09     # date range
 .venv/bin/python pgvector/query.py search "cooperative"     # search note content
 .venv/bin/python pgvector/query.py related linkedtrust      # who is related to X?
-.venv/bin/python pgvector/query.py refs                     # list LT reference docs
+.venv/bin/python pgvector/query.py refs                     # list ABOUT bindings in the scope by date
 .venv/bin/python pgvector/query.py names kevin              # list names by prefix
 
 # Use as library in a processing session

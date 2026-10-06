@@ -4,7 +4,7 @@ Import LinkedIn Connections.csv and/or Google Contacts.csv into pgvector
 as searchable content blobs (scrubbed of PII).
 
 Strips emails, phone numbers, addresses. Keeps: name, company, position, date.
-Stores as chunked content blobs under golda/contacts/linkedin-full (a0010103).
+Stores as chunked content blobs under --catcode (default a0010103) in --scope.
 
 Usage:
     cd /opt/shared/repos/abra/impl
@@ -29,9 +29,10 @@ import argparse
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'pgvector'))
 from write_binding import AbraWriter
 
-CATCODE = "a0010103"
-CATCODE_PARENT = "a00101"
-CATCODE_LABEL = "golda/contacts/linkedin-full"
+DEFAULT_SCOPE = "golda"
+DEFAULT_CATCODE = "a0010103"
+DEFAULT_CATCODE_PARENT = "a00101"
+DEFAULT_CATCODE_LABEL = "golda/contacts/linkedin-full"
 BINDING_NAME = "linkedin-contacts-full"
 CHUNK_SIZE = 200
 
@@ -104,6 +105,12 @@ def main():
     parser.add_argument("--confirm", action="store_true", help="Actually write (default is dry run)")
     parser.add_argument("--replace", action="store_true", help="Delete existing contact chunks first")
     parser.add_argument("--chunk-size", type=int, default=CHUNK_SIZE, help=f"Contacts per chunk (default {CHUNK_SIZE})")
+    parser.add_argument("--scope", default=DEFAULT_SCOPE, help=f"Scope for bindings (default {DEFAULT_SCOPE})")
+    parser.add_argument("--catcode", default=DEFAULT_CATCODE, help=f"Catcode for chunks (default {DEFAULT_CATCODE})")
+    parser.add_argument("--catcode-parent", default=DEFAULT_CATCODE_PARENT,
+                        help=f"Parent of --catcode (default {DEFAULT_CATCODE_PARENT})")
+    parser.add_argument("--catcode-label", default=DEFAULT_CATCODE_LABEL,
+                        help=f"Label registered for --catcode (default {DEFAULT_CATCODE_LABEL})")
     args = parser.parse_args()
 
     all_rows = []
@@ -141,14 +148,15 @@ def main():
     writer = AbraWriter()
 
     # Ensure catcode exists
-    writer.register_catcode(CATCODE, CATCODE_PARENT, CATCODE_LABEL)
+    writer.register_catcode(args.catcode, args.catcode_parent, args.catcode_label)
 
     # Delete old chunks if replacing
     if args.replace:
         cur = writer.conn.cursor()
-        cur.execute("DELETE FROM content WHERE catcode = %s AND source_file LIKE 'contacts-full-list-chunk-%'", (CATCODE,))
+        cur.execute("DELETE FROM content WHERE catcode = %s AND source_file LIKE %s",
+                    (args.catcode, "contacts-full-list-chunk-%"))
         old_content = cur.rowcount
-        cur.execute("DELETE FROM bindings WHERE scope = 'golda' AND name = %s", (BINDING_NAME,))
+        cur.execute("DELETE FROM bindings WHERE scope = %s AND name = %s", (args.scope, BINDING_NAME))
         old_bindings = cur.rowcount
         writer.conn.commit()
         cur.close()
@@ -164,20 +172,20 @@ def main():
             f"contacts-full-list-chunk-{i + 1}.csv",
             content,
             note_date="2025-02-15",
-            catcode=CATCODE,
+            catcode=args.catcode,
         )
         content_ids.append(cid)
         print(f"  Chunk {i + 1}: {len(chunk)} entries -> content {cid}")
 
     # Create bindings
-    writer.write_binding("golda", BINDING_NAME, "IS", "text",
+    writer.write_binding(args.scope, BINDING_NAME, "IS", "text",
         "Full LinkedIn + Google contacts list (scrubbed, no PII)",
-        permanence="INTRINSIC", source_date="2025-02-15", catcode=CATCODE)
+        permanence="INTRINSIC", source_date="2025-02-15", catcode=args.catcode)
     for i, cid in enumerate(content_ids):
-        writer.write_binding("golda", BINDING_NAME, "ABOUT", "content",
+        writer.write_binding(args.scope, BINDING_NAME, "ABOUT", "content",
             str(cid),
             qualifier=f"contacts list chunk {i + 1}/{len(chunks)}",
-            source_date="2025-02-15", catcode=CATCODE)
+            source_date="2025-02-15", catcode=args.catcode)
 
     writer.close()
     print(f"\nDone. {len(all_rows)} contacts in {len(chunks)} chunks.")

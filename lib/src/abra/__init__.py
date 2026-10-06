@@ -17,12 +17,12 @@ Usage:
     )
 
     # Query
-    bindings = store.bindings_for("leanne-ussher")
+    bindings = store.bindings_for("ltq1")
     results = store.search_content("cooperative governance")
     hot = store.hot_tags()
 
     # Write
-    store.write_binding("golda", "peter", "IS", "text", "Peter Smith")
+    store.write_binding("my-scope", "ltq1", "IS", "text", "Q1 plan")
     cid = store.store_content("notes/meeting.md", "scrubbed text...")
 
     # Override behavior by subclassing

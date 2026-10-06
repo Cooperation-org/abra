@@ -44,7 +44,7 @@ components:
     schemes:     ["amebo:digest"]
     required:    ["data-up"]
     integrity:   "sha384-REPLACE_ME"
-    added_by:    "urn:abra:user/golda"
+    added_by:    "urn:abra:user/<you>"
     added_at:    "2026-06-01"
 
   amebo-claws:
@@ -56,7 +56,7 @@ components:
     schemes:     []
     required:    ["data-up"]
     integrity:   "sha384-REPLACE_ME"
-    added_by:    "urn:abra:user/golda"
+    added_by:    "urn:abra:user/<you>"
     added_at:    "2026-06-01"
 
   amebo-create-claw:
@@ -68,7 +68,7 @@ components:
     schemes:     []
     required:    ["data-up"]
     integrity:   "sha384-REPLACE_ME"
-    added_by:    "urn:abra:user/golda"
+    added_by:    "urn:abra:user/<you>"
     added_at:    "2026-06-01"
 
   # Illustrative self-contained example (no host wiring).
@@ -81,5 +81,5 @@ components:
   #   schemes:     []          # self-contained, no host wiring
   #   required:    []
   #   integrity:   "sha384-..."
-  #   added_by:    "urn:abra:user/golda"
+  #   added_by:    "urn:abra:user/<you>"
   #   added_at:    "2026-06-01"

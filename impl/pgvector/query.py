@@ -7,9 +7,8 @@ Usage:
     .venv/bin/python pgvector/query.py who credentials
     .venv/bin/python pgvector/query.py who "workforce dev"
 
-    # What do I know about someone?
-    .venv/bin/python pgvector/query.py about bobbi-vernon
-    .venv/bin/python pgvector/query.py about eric
+    # What do I know about a name?
+    .venv/bin/python pgvector/query.py about ltq1
 
     # Who did I meet in a time range?
     .venv/bin/python pgvector/query.py when 2025-10
@@ -20,184 +19,109 @@ Usage:
     .venv/bin/python pgvector/query.py search "donor advised"
 
     # Who is related to a name/topic?
-    .venv/bin/python pgvector/query.py related linkedtrust
-    .venv/bin/python pgvector/query.py related skillsaware
+    .venv/bin/python pgvector/query.py related ltq1
 
-    # List all LT reference docs
+    # List ABOUT bindings in the scope by date
     .venv/bin/python pgvector/query.py refs
 
     # Dump all names (with optional prefix filter)
     .venv/bin/python pgvector/query.py names
-    .venv/bin/python pgvector/query.py names eric
+    .venv/bin/python pgvector/query.py names lt
 """
 import os
-import re
 import sys
 import argparse
-import psycopg2
-from dotenv import load_dotenv
+from datetime import datetime
 
-# Keep the CLI output clean: silence HuggingFace / transformers model-load
-# progress bars (the "Loading weights / Materializing param" spam) so a session
-# calling `abra search`/`store` gets results, not download bars. Set before any
-# HF library is imported.
-os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
-os.environ.setdefault("HF_HUB_VERBOSITY", "error")
-os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
-os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
-
-# The .env is optional: service identities (e.g. the amebo service user) carry
-# their credentials in the environment instead, and may not be able to read a
-# developer's .env file. An unreadable .env must not crash the CLI.
-_dotenv_path = os.path.join(os.path.dirname(__file__), '..', '.env')
-try:
-    load_dotenv(_dotenv_path)
-except OSError:
-    pass
-
-MODEL_NAME = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
-_model = None
+import db
+from instance import default_scope
 
 
 def get_model():
-    """Lazy-load embedding model (only when needed for vector search)."""
-    global _model
-    if _model is None:
-        try:
-            from huggingface_hub.utils import disable_progress_bars
-            disable_progress_bars()
-        except Exception:
-            pass
-        from sentence_transformers import SentenceTransformer
-        _model = SentenceTransformer(MODEL_NAME)
-    return _model
-
-PG_HOST = os.getenv("PG_HOST", "10.0.0.100")
-PG_PORT = os.getenv("PG_PORT", "5432")
-PG_USER = os.getenv("PG_USER", "cobox")
-PG_PASSWORD = os.getenv("PG_PASSWORD", "")
-PG_DATABASE = os.getenv("PG_DATABASE", "abra")
-
-# A full connection URL takes precedence over the discrete PG_* vars. This is
-# how scoped service identities connect (e.g. amebo sets ABRA_DATABASE_URL to
-# its amebo_writer role) without sharing a developer's PG_* credentials.
-ABRA_DATABASE_URL = os.getenv("ABRA_DATABASE_URL", "")
-
-
-def get_conn():
-    if ABRA_DATABASE_URL:
-        return psycopg2.connect(ABRA_DATABASE_URL)
-    return psycopg2.connect(
-        host=PG_HOST, port=PG_PORT, user=PG_USER,
-        password=PG_PASSWORD, dbname=PG_DATABASE
-    )
+    from write_binding import get_model as _get_model
+    return _get_model()
 
 
 def cmd_who(args):
     """Find people by topic/qualifier keyword."""
     term = args.term
-    conn = get_conn()
+    d = db.dialect()
+    conn = db.connect()
     cur = conn.cursor()
-    cur.execute("""
+    cur.execute(f"""
         SELECT DISTINCT b.name, b.qualifier, b.source_date
         FROM bindings b
         WHERE b.scope = %s
         AND b.relationship = 'ABOUT'
-        AND b.qualifier ILIKE %s
+        AND {d.ilike('b.qualifier')}
         ORDER BY b.name
     """, (args.scope, f"%{term}%"))
     rows = cur.fetchall()
     if not rows:
         # Also try content search as fallback
-        cur.execute("""
+        cur.execute(f"""
             SELECT DISTINCT b.name, b.qualifier, b.source_date
             FROM bindings b
             JOIN content c ON c.id = CAST(b.target_ref AS INTEGER)
             WHERE b.scope = %s
             AND b.relationship = 'ABOUT'
             AND b.target_type = 'content'
-            AND c.content ILIKE %s
+            AND {d.ilike('c.content')}
             ORDER BY b.name
         """, (args.scope, f"%{term}%"))
         rows = cur.fetchall()
         if rows:
-            print(f"(matched in note content)")
+            print("(matched in note content)")
     if not rows:
         print(f"No contacts found for '{term}'")
     else:
         print(f"Contacts related to '{term}':\n")
         for name, qual, date in rows:
-            d = f" ({date})" if date else ""
-            print(f"  {name}: {qual}{d}")
+            d_ = f" ({date})" if date else ""
+            print(f"  {name}: {qual}{d_}")
     cur.close()
     conn.close()
 
 
 def cmd_about(args):
-    """Show everything known about a name. Hot tags shown first."""
+    """Show everything known about a name. Hot tag definition shown first."""
     name = args.name
-    conn = get_conn()
+    d = db.dialect()
+    conn = db.connect()
     cur = conn.cursor()
 
-    # Check both scopes for hot tags
-    scopes_to_check = [args.scope]
-    if args.scope == 'golda':
-        scopes_to_check.append('linkedtrust')
-    elif args.scope == 'linkedtrust':
-        scopes_to_check.append('golda')
+    cur.execute("SELECT 1 FROM hot_tags WHERE scope = %s AND name = %s", (args.scope, name))
+    if cur.fetchone():
+        cur.execute("""
+            SELECT c.id, c.content
+            FROM bindings b
+            JOIN content c ON c.id = CAST(b.target_ref AS INTEGER)
+            WHERE b.scope = %s AND b.name = %s
+            AND b.relationship = 'ABOUT' AND b.target_type = 'content'
+            AND b.qualifier = 'hot tag definition'
+            ORDER BY c.id DESC LIMIT 1
+        """, (args.scope, name))
+        hot_row = cur.fetchone()
+        if hot_row:
+            print(f"=== {name} [HOT] ===\n")
+            print(hot_row[1])
+            print()
 
-    # Check if this name is hot in any scope — show hot content first
-    for sc in scopes_to_check:
-        cur.execute("SELECT 1 FROM hot_tags WHERE scope = %s AND name = %s", (sc, name))
-        if cur.fetchone():
-            # Show hot tag content prominently
-            cur.execute("""
-                SELECT c.id, c.content
-                FROM bindings b
-                JOIN content c ON c.id = CAST(b.target_ref AS INTEGER)
-                WHERE b.scope = %s AND b.name = %s
-                AND b.relationship = 'ABOUT' AND b.target_type = 'content'
-                AND b.qualifier = 'hot tag definition'
-                ORDER BY c.id DESC LIMIT 1
-            """, (sc, name))
-            hot_row = cur.fetchone()
-            if hot_row:
-                print(f"=== {name} [HOT] ===\n")
-                print(hot_row[1])
-                print()
-                # Still show other bindings below
-                break
-
-    # Find matching names
-    cur.execute("""
+    cur.execute(f"""
         SELECT DISTINCT name FROM bindings
-        WHERE scope = %s AND name ILIKE %s
+        WHERE scope = %s AND {d.ilike('name')}
         ORDER BY name
     """, (args.scope, f"%{name}%"))
     names = [r[0] for r in cur.fetchall()]
     if not names:
-        # Try linkedtrust scope too
-        if args.scope != 'linkedtrust':
-            cur.execute("""
-                SELECT DISTINCT name FROM bindings
-                WHERE scope = 'linkedtrust' AND name ILIKE %s
-                ORDER BY name
-            """, (f"%{name}%",))
-            names = [r[0] for r in cur.fetchall()]
-            if names:
-                print(f"(found in linkedtrust scope)")
-                args.scope = 'linkedtrust'
-        if not names:
-            print(f"No names matching '{name}'")
-            cur.close()
-            conn.close()
-            return
+        print(f"No names matching '{name}' in scope '{args.scope}'")
+        cur.close()
+        conn.close()
+        return
 
     for n in names:
-        # Check hot status
         cur.execute("SELECT 1 FROM hot_tags WHERE scope = %s AND name = %s", (args.scope, n))
-        is_hot = cur.fetchone()
-        marker = " [HOT]" if is_hot else ""
+        marker = " [HOT]" if cur.fetchone() else ""
         print(f"=== {n}{marker} ===")
         cur.execute("""
             SELECT relationship, target_type, target_ref, qualifier, source_date
@@ -206,26 +130,26 @@ def cmd_about(args):
             ORDER BY relationship, source_date
         """, (args.scope, n))
         for rel, ttype, tref, qual, date in cur.fetchall():
-            # Skip hot tag definition in the bindings list — already shown above
+            # Hot tag definition is already shown above
             if qual == 'hot tag definition':
                 continue
-            d = f" ({date})" if date else ""
+            dt = f" ({date})" if date else ""
             q = f" [{qual}]" if qual else ""
             if rel == 'ABOUT' and ttype == 'content':
-                # Fetch content snippet
                 try:
                     cur2 = conn.cursor()
-                    cur2.execute("SELECT source_file, LEFT(content, 200) FROM content WHERE id = %s", (int(tref),))
+                    cur2.execute("SELECT source_file, SUBSTR(content, 1, 200) FROM content WHERE id = %s",
+                                 (int(tref),))
                     row = cur2.fetchone()
                     cur2.close()
                     if row:
-                        print(f"  {rel}{q}{d}")
+                        print(f"  {rel}{q}{dt}")
                         print(f"    source: {row[0]}")
                         print(f"    {row[1][:150]}...")
                         continue
                 except (ValueError, TypeError):
                     pass
-            print(f"  {rel} [{ttype}] {tref[:80]}{q}{d}")
+            print(f"  {rel} [{ttype}] {tref[:80]}{q}{dt}")
         print()
     cur.close()
     conn.close()
@@ -251,7 +175,7 @@ def cmd_when(args):
         start_date = start
         end_date = args.end or "2099-12-31"
 
-    conn = get_conn()
+    conn = db.connect()
     cur = conn.cursor()
     cur.execute("""
         SELECT DISTINCT b.name, b.qualifier, b.source_date
@@ -273,33 +197,23 @@ def cmd_when(args):
 
 
 def cmd_search(args):
-    """Search note content using vector similarity, falling back to ILIKE."""
+    """Search note content using vector similarity, falling back to a text match."""
     term = args.term
     limit = getattr(args, 'limit', 20)
-    conn = get_conn()
+    d = db.dialect()
+    conn = db.connect()
     cur = conn.cursor()
 
-    # Check if any embeddings exist
     cur.execute("SELECT EXISTS(SELECT 1 FROM content WHERE embedding IS NOT NULL)")
     has_embeddings = cur.fetchone()[0]
 
     if has_embeddings:
-        # Vector similarity search with associated names
-        model = get_model()
-        query_vec = model.encode(term).tolist()
-        cur.execute("""
-            SELECT c.id, c.source_file, c.note_date, c.content,
-                   1 - (c.embedding <=> %s::vector) AS similarity
-            FROM content c
-            WHERE c.embedding IS NOT NULL
-            ORDER BY c.embedding <=> %s::vector
-            LIMIT %s
-        """, (query_vec, query_vec, limit))
-        rows = cur.fetchall()
+        rows = d.nearest_content(cur, get_model().encode(term).tolist(), limit)
         if rows:
             # Batch-fetch associated names + display names for all content IDs
             cids = [str(r[0]) for r in rows]
-            cur.execute("""
+            placeholders = ", ".join(["%s"] * len(cids))
+            cur.execute(f"""
                 SELECT ab.target_ref, ab.name,
                        (SELECT isb.target_ref FROM bindings isb
                         WHERE isb.name = ab.name AND isb.scope = ab.scope
@@ -307,8 +221,8 @@ def cmd_search(args):
                 FROM bindings ab
                 WHERE ab.target_type = 'content'
                 AND ab.relationship = 'ABOUT'
-                AND ab.target_ref = ANY(%s)
-            """, (cids,))
+                AND ab.target_ref IN ({placeholders})
+            """, cids)
             content_names = {}
             for tref, slug, display in cur.fetchall():
                 label = display or slug
@@ -332,11 +246,11 @@ def cmd_search(args):
         else:
             print(f"No notes matching '{term}'")
     else:
-        # Fallback: ILIKE text search (no embeddings populated)
-        cur.execute("""
+        # Fallback: text match (no embeddings populated)
+        cur.execute(f"""
             SELECT c.id, c.source_file, c.note_date, c.content
             FROM content c
-            WHERE c.content ILIKE %s
+            WHERE {d.ilike('c.content')}
             ORDER BY c.note_date
         """, (f"%{term}%",))
         rows = cur.fetchall()
@@ -355,7 +269,7 @@ def cmd_search(args):
                 for m in matches:
                     print(f"    > {m}")
                 if not matches:
-                    print(f"    (match in content)")
+                    print("    (match in content)")
                 print()
     cur.close()
     conn.close()
@@ -364,15 +278,15 @@ def cmd_search(args):
 def cmd_related(args):
     """Find who is related to a name or topic."""
     target = args.target
-    conn = get_conn()
+    d = db.dialect()
+    conn = db.connect()
     cur = conn.cursor()
-    # RELATED bindings where target_ref matches
-    cur.execute("""
+    cur.execute(f"""
         SELECT b.name, b.qualifier, b.source_date
         FROM bindings b
         WHERE b.scope = %s
         AND b.relationship = 'RELATED'
-        AND (b.target_ref ILIKE %s OR b.qualifier ILIKE %s)
+        AND ({d.ilike('b.target_ref')} OR {d.ilike('b.qualifier')})
         ORDER BY b.name
     """, (args.scope, f"%{target}%", f"%{target}%"))
     rows = cur.fetchall()
@@ -381,31 +295,31 @@ def cmd_related(args):
     else:
         print(f"Related to '{target}':\n")
         for name, qual, date in rows:
-            d = f" ({date})" if date else ""
-            print(f"  {name}: {qual}{d}")
+            dt = f" ({date})" if date else ""
+            print(f"  {name}: {qual}{dt}")
     cur.close()
     conn.close()
 
 
 def cmd_refs(args):
-    """List all LinkedTrust reference docs."""
-    conn = get_conn()
+    """List ABOUT bindings in the scope, oldest first."""
+    conn = db.connect()
     cur = conn.cursor()
     cur.execute("""
         SELECT b.name, b.qualifier, b.source_date
         FROM bindings b
-        WHERE b.scope = 'linkedtrust'
+        WHERE b.scope = %s
         AND b.relationship = 'ABOUT'
         ORDER BY b.source_date NULLS LAST
-    """)
+    """, (args.scope,))
     rows = cur.fetchall()
     if not rows:
-        print("No LT reference docs found")
+        print(f"No ABOUT bindings in scope '{args.scope}'")
     else:
-        print("LinkedTrust reference docs:\n")
+        print(f"ABOUT bindings in '{args.scope}':\n")
         for name, qual, date in rows:
-            d = f" ({date})" if date else ""
-            print(f"  {name}: {qual}{d}")
+            dt = f" ({date})" if date else ""
+            print(f"  {name}: {qual}{dt}")
     cur.close()
     conn.close()
 
@@ -413,12 +327,13 @@ def cmd_refs(args):
 def cmd_names(args):
     """List names that have context (ABOUT or RELATED bindings)."""
     prefix = args.prefix or ""
-    conn = get_conn()
+    d = db.dialect()
+    conn = db.connect()
     cur = conn.cursor()
-    cur.execute("""
+    cur.execute(f"""
         SELECT DISTINCT b.name, b.qualifier, b.source_date
         FROM bindings b
-        WHERE b.scope = %s AND b.name ILIKE %s
+        WHERE b.scope = %s AND {d.ilike('b.name')}
         AND b.relationship IN ('ABOUT', 'RELATED')
         ORDER BY b.name
     """, (args.scope, f"{prefix}%"))
@@ -433,8 +348,8 @@ def cmd_names(args):
                 seen[name] = (qual, date)
         print(f"{len(seen)} names:\n")
         for name, (qual, date) in seen.items():
-            d = f" ({date})" if date else ""
-            print(f"  {name}: {qual}{d}")
+            dt = f" ({date})" if date else ""
+            print(f"  {name}: {qual}{dt}")
     cur.close()
     conn.close()
 
@@ -442,30 +357,31 @@ def cmd_names(args):
 def cmd_hot(args):
     """List hot tags or show a specific one."""
     name = getattr(args, 'name', None)
-    conn = get_conn()
+    d = db.dialect()
+    conn = db.connect()
     cur = conn.cursor()
 
     if not name:
-        # List all hot tags across both scopes (skip expired)
-        cur.execute("""
+        # List all hot tags across scopes (skip expired)
+        cur.execute(f"""
             SELECT h.scope, h.name, h.priority, h.expires_at,
                    (SELECT b.target_ref FROM bindings b
                     WHERE b.scope = h.scope AND b.name = h.name
                     AND b.relationship = 'IS' LIMIT 1)
             FROM hot_tags h
-            WHERE h.expires_at IS NULL OR h.expires_at > NOW()
+            WHERE h.expires_at IS NULL OR h.expires_at > {d.now}
             ORDER BY h.priority DESC, h.scope, h.name
         """)
         rows = cur.fetchall()
         if not rows:
             print("No hot tags")
         else:
-            print(f"Hot tags:\n")
+            print("Hot tags:\n")
             for scope, name, pri, expires, is_text in rows:
                 desc = f" — {is_text[:70]}" if is_text else ""
                 exp = ""
                 if expires:
-                    days_left = (expires - __import__('datetime').datetime.now()).days
+                    days_left = (expires - datetime.now()).days
                     exp = f" (expires in {days_left}d)"
                 print(f"  [{scope}] {name}{desc}{exp}")
     else:
@@ -482,7 +398,6 @@ def cmd_hot(args):
             return
         scope = row[0]
 
-        # Fetch hot tag definition content
         cur.execute("""
             SELECT c.id, c.content
             FROM bindings b
@@ -571,7 +486,7 @@ def _resolve_cat_path(writer, path):
 def _resolve_catcode(writer, args):
     """Pick the catcode for this write. Prefers explicit args; prompts
     interactively when stdin is a tty; otherwise errors out. Never silently
-    defaults — per Golda 2026-06-05, the CLI must ask, not assume."""
+    defaults: the CLI must ask, not assume."""
     catcode_flag = getattr(args, 'catcode', None)
     cat_flag = getattr(args, 'cat', None)
     if catcode_flag:
@@ -661,7 +576,8 @@ def cmd_reindex(args):
     Rows with a NULL embedding are excluded from semantic search, so a blob
     written by a path that could not embed (an importer, a service identity
     without the model) is reachable only by name until this runs."""
-    conn = get_conn()
+    d = db.dialect()
+    conn = db.connect()
     cur = conn.cursor()
     cur.execute("SELECT id, content FROM content WHERE embedding IS NULL ORDER BY id")
     rows = [(cid, text) for cid, text in cur.fetchall() if text and text.strip()]
@@ -672,7 +588,7 @@ def cmd_reindex(args):
     model = get_model()
     for n, (cid, text) in enumerate(rows, 1):
         cur.execute("UPDATE content SET embedding = %s WHERE id = %s",
-                    (str(model.encode(text).tolist()), cid))
+                    (d.vector(model.encode(text).tolist()), cid))
         if n % 100 == 0:
             conn.commit()
             print(f"  {n}/{len(rows)}")
@@ -722,7 +638,8 @@ def cmd_hot_unset(args):
 def cmd_read(args):
     """Read the full content linked to a name or content ID."""
     target = args.target
-    conn = get_conn()
+    d = db.dialect()
+    conn = db.connect()
     cur = conn.cursor()
     # Try as content ID first
     try:
@@ -737,30 +654,17 @@ def cmd_read(args):
             return
     except ValueError:
         pass
-    # Find by name — get all ABOUT content bindings
-    cur.execute("""
+    # Find by name across scopes — all ABOUT content bindings
+    cur.execute(f"""
         SELECT c.id, c.source_file, c.note_date, c.content
         FROM bindings b
         JOIN content c ON c.id = CAST(b.target_ref AS INTEGER)
-        WHERE b.name ILIKE %s
+        WHERE {d.ilike('b.name')}
         AND b.relationship = 'ABOUT'
         AND b.target_type = 'content'
         ORDER BY c.note_date
     """, (f"%{target}%",))
     rows = cur.fetchall()
-    if not rows:
-        # Try linkedtrust scope too
-        cur.execute("""
-            SELECT c.id, c.source_file, c.note_date, c.content
-            FROM bindings b
-            JOIN content c ON c.id = CAST(b.target_ref AS INTEGER)
-            WHERE b.scope = 'linkedtrust'
-            AND b.name ILIKE %s
-            AND b.relationship = 'ABOUT'
-            AND b.target_type = 'content'
-            ORDER BY c.note_date
-        """, (f"%{target}%",))
-        rows = cur.fetchall()
     if not rows:
         print(f"No content found for '{target}'")
     else:
@@ -774,29 +678,29 @@ def cmd_read(args):
 
 
 HELP_TEXT = """
-abra — query and write contacts, notes, and relationships
+abra — query and write names, notes, and relationships
 
 Read commands:
-  abra who "credentials"         Find people by topic keyword
-  abra about bobbi-vernon        Everything known about a person
-  abra about eric                Partial match works too
+  abra who "credentials"         Find names by topic keyword
+  abra about ltq1                Everything known about a name
+  abra about lt                  Partial match works too
   abra when 2025-10              Who did I meet that month?
   abra when 2025-07 2025-09      Date range (July thru August)
-  abra search "cooperative"      Full-text search across all notes
-  abra related linkedtrust       Who has a relationship to X?
-  abra refs                      List all LinkedTrust reference docs
-  abra names                     List all processed names (with context)
-  abra names kevin               Filter names by prefix
+  abra search "cooperative"      Semantic search across all notes
+  abra related ltq1              Who has a relationship to X?
+  abra refs                      List ABOUT bindings in the scope by date
+  abra names                     List all names with context
+  abra names lt                  Filter names by prefix
   abra hot                       List all hot tags (warm context)
-  abra hot alonovo               Show hot tag definition
-  abra read bobbi-vernon         Read full note content for a name
+  abra hot ltq1                  Show hot tag definition
+  abra read ltq1                 Read full note content for a name
   abra read 35                   Read content by ID number
 
 Write commands:
-  abra store <name> "text"       Store content and bind to a name
-  abra store <name> -f file.txt  Store content from a file
-  abra bind <name> IS "Full Name"              Create a binding
-  abra bind <name> RELATED target --qualifier "context"
+  abra store <name> "text" --cat <path>        Store content and bind to a name
+  abra store <name> -f file.txt --cat <path>   Store content from a file
+  abra bind <name> IS "Full Name" --cat <path> Create a binding
+  abra bind <name> RELATED target --qualifier "context" --cat <path>
   abra hot set <name>            Mark as hot (expires in 30 days)
   abra hot set <name> --days 90  Custom expiry
   abra hot unset <name>          Remove hot tag
@@ -806,12 +710,10 @@ Maintenance:
                                  (unembedded blobs are invisible to search)
 
 Options:
-  --scope SCOPE                  Scope (default: golda)
+  --scope SCOPE                  Scope (default: $ABRA_SCOPE, else `scope:` in
+                                 ~/.abra/sources.yaml, else your login name)
   --qualifier TEXT               Qualifier for store/bind
-
-For complex queries, ask Claude in a session:
-  "use the abra tool to find everyone in healthcare credentialing"
-  "query abra for contacts I should follow up with from badge conferences"
+  --cat PATH / --catcode CODE    Category for store/bind (required)
 """.strip()
 
 
@@ -829,14 +731,14 @@ def main():
         print(HELP_TEXT)
         sys.exit(1)
 
-    parser = argparse.ArgumentParser(description='abra — query contacts, notes, and relationships',
+    parser = argparse.ArgumentParser(description='abra — query names, notes, and relationships',
                                      add_help=False)
-    parser.add_argument('--scope', default='golda', help='Scope to query (default: golda)')
+    parser.add_argument('--scope', default=default_scope(), help='Scope to query')
     sub = parser.add_subparsers(dest='command')
 
     scope_kw = dict(default=argparse.SUPPRESS, help='Scope to query')
 
-    p_who = sub.add_parser('who', help='Find people by topic')
+    p_who = sub.add_parser('who', help='Find names by topic')
     p_who.add_argument('--scope', **scope_kw)
     p_who.add_argument('term', help='Topic keyword to search')
 
@@ -844,7 +746,7 @@ def main():
     p_about.add_argument('--scope', **scope_kw)
     p_about.add_argument('name', help='Name or prefix to look up')
 
-    p_when = sub.add_parser('when', help='Find contacts by date')
+    p_when = sub.add_parser('when', help='Find names by date')
     p_when.add_argument('--scope', **scope_kw)
     p_when.add_argument('start', help='Start date (YYYY-MM or YYYY-MM-DD)')
     p_when.add_argument('end', nargs='?', help='End date (optional)')
@@ -852,11 +754,12 @@ def main():
     p_search = sub.add_parser('search', help='Search note content')
     p_search.add_argument('term', help='Text to search for')
 
-    p_related = sub.add_parser('related', help='Find related contacts')
+    p_related = sub.add_parser('related', help='Find related names')
     p_related.add_argument('--scope', **scope_kw)
     p_related.add_argument('target', help='Name or topic to find relations for')
 
-    p_refs = sub.add_parser('refs', help='List LT reference docs')
+    p_refs = sub.add_parser('refs', help='List ABOUT bindings in the scope')
+    p_refs.add_argument('--scope', **scope_kw)
 
     p_names = sub.add_parser('names', help='List known names')
     p_names.add_argument('--scope', **scope_kw)

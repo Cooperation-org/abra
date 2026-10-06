@@ -4,7 +4,7 @@ Import LinkedIn Connections.csv and Google/LinkedIn Contacts.csv into Odoo CRM +
 
 PII (name, email, phone, company, title) → Odoo CRM
 Bindings (pet name, IS, HAS crm:odoo/contact/ID, HAS uri:linkedin) → pgvector
-All contacts placed at catcode a0010101 (golda/contacts).
+Contacts are placed at --catcode (default a0010101) in --scope.
 
 Deduplicates by email (primary) then by normalized name.
 Dry run by default — use --confirm to write.
@@ -12,6 +12,7 @@ Dry run by default — use --confirm to write.
 Usage:
     python import_linkedin.py ~/Connections.csv ~/Contacts.csv
     python import_linkedin.py ~/Connections.csv ~/Contacts.csv --confirm
+    python import_linkedin.py ~/Connections.csv --scope <scope> --catcode <catcode> --confirm
 """
 import csv
 import os
@@ -22,7 +23,8 @@ from dotenv import load_dotenv
 
 load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 
-CATCODE_CONTACTS = "a0010101"  # golda/contacts
+DEFAULT_SCOPE = "golda"
+DEFAULT_CATCODE = "a0010101"
 
 
 def normalize_name(first, last):
@@ -169,7 +171,7 @@ def dedup(all_contacts):
     return deduped
 
 
-def do_import(contacts, dry_run=True):
+def do_import(contacts, dry_run=True, scope=DEFAULT_SCOPE, catcode=DEFAULT_CATCODE):
     """Import contacts to Odoo CRM + pgvector bindings."""
     if dry_run:
         print(f"\n  DRY RUN — {len(contacts)} contacts to import\n")
@@ -224,7 +226,7 @@ def do_import(contacts, dry_run=True):
                 email=c["email"],
                 phone=c["phone"],
                 company=c["company"],
-                catcode=CATCODE_CONTACTS,
+                catcode=catcode,
                 notes=f"Imported from {c['source']}. Title: {c.get('title') or 'n/a'}",
             )
             if isinstance(odoo_id, list):
@@ -232,16 +234,16 @@ def do_import(contacts, dry_run=True):
 
             # Create bindings in pgvector (no PII)
             if c["pet_name"]:
-                writer.write_binding("golda", c["pet_name"], "IS", "text",
+                writer.write_binding(scope, c["pet_name"], "IS", "text",
                                      c["name"], permanence="INTRINSIC",
-                                     catcode=CATCODE_CONTACTS)
-                writer.write_binding("golda", c["pet_name"], "HAS", "uri",
+                                     catcode=catcode)
+                writer.write_binding(scope, c["pet_name"], "HAS", "uri",
                                      f"crm:odoo/contact/{odoo_id}",
-                                     permanence="CURRENT", catcode=CATCODE_CONTACTS)
+                                     permanence="CURRENT", catcode=catcode)
                 if c["linkedin_url"]:
-                    writer.write_binding("golda", c["pet_name"], "HAS", "uri",
+                    writer.write_binding(scope, c["pet_name"], "HAS", "uri",
                                          c["linkedin_url"],
-                                         permanence="CURRENT", catcode=CATCODE_CONTACTS)
+                                         permanence="CURRENT", catcode=catcode)
 
             created += 1
             if (i + 1) % 100 == 0:
@@ -259,6 +261,8 @@ def main():
     parser = argparse.ArgumentParser(description="Import LinkedIn + Google contacts into Odoo + abra")
     parser.add_argument("files", nargs="+", help="CSV files to import (Connections.csv and/or Contacts.csv)")
     parser.add_argument("--confirm", action="store_true", help="Actually write (default is dry run)")
+    parser.add_argument("--scope", default=DEFAULT_SCOPE, help=f"Scope for bindings (default {DEFAULT_SCOPE})")
+    parser.add_argument("--catcode", default=DEFAULT_CATCODE, help=f"Catcode for contacts (default {DEFAULT_CATCODE})")
     args = parser.parse_args()
 
     all_contacts = []
@@ -288,7 +292,7 @@ def main():
     all_contacts = dedup(all_contacts)
     print(f"Total after dedup: {len(all_contacts)}")
 
-    do_import(all_contacts, dry_run=not args.confirm)
+    do_import(all_contacts, dry_run=not args.confirm, scope=args.scope, catcode=args.catcode)
 
 
 if __name__ == "__main__":

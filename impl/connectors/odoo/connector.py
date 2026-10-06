@@ -9,7 +9,7 @@ Usage:
     from connector import OdooConnector
     crm = OdooConnector()  # reads config from sources.yaml
     if crm.is_ready():
-        contact_id = crm.create_contact(name="Leanne Ussher", email="...", catcode="usv0gvcob1lu")
+        contact_id = crm.create_contact(name="...", email="...", catcode="usv0gvcob1lu")
 """
 import os
 import xmlrpc.client
