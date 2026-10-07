@@ -2,21 +2,20 @@
 # abra — query and write names, notes, and relationships
 #
 # Read:
-#   abra who "credentials"         Find names by topic
-#   abra about ltq1                Everything known about a name
-#   abra when 2025-10              Who did I meet that month?
-#   abra search "cooperative"      Search note content
-#   abra related ltq1              Who is related to X?
+#   abra who <keyword>             Names whose ABOUT qualifier (or note) matches
+#   abra about <name>              Everything known about a name
+#   abra when YYYY-MM [YYYY-MM]    ABOUT bindings dated in that month / range
+#   abra search "<words>"          Semantic search over notes
+#   abra related <name>            RELATED bindings mentioning it
 #   abra refs                      List ABOUT bindings in the scope by date
-#   abra names lt                  Browse names by prefix
-#   abra hot                       List hot tags (warm context)
-#   abra hot ltq1                  Show hot tag definition
-#   abra read ltq1                 Read full note content
+#   abra names [prefix]            Browse names
+#   abra hot [name]                List hot tags / show one
+#   abra read <name|id>            Read full note content
 #
 # Write:
-#   abra store <name> "text" --cat <path>     Store content and bind to a name
-#   abra store <name> -f file.txt --cat <path>
-#   abra bind <name> IS "Full Name" --cat <path>
+#   abra store <name> "<text>" --cat <root>/<topic>     Store content and bind to a name
+#   abra store <name> -f <file> --cat <root>/<topic>
+#   abra bind <name> IS "<what it is>" --cat <root>/<topic>
 #   abra hot set <name>            Mark as hot (30 day expiry)
 #   abra hot set <name> --days 90  Custom expiry
 #   abra hot unset <name>          Remove hot tag

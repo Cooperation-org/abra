@@ -7,17 +7,17 @@ Usage from a processing session:
     writer = AbraWriter()
 
     # Store a note blob
-    content_id = writer.store_content("1-20-26-q1-plan.txt", "note text...", note_date="2026-01-20")
+    content_id = writer.store_content(source_file, text, note_date=None, catcode=catcode)
 
     # Create bindings
-    writer.write_binding(scope, "ltq1", "IS", "text", "Q1 plan", permanence="INTRINSIC")
-    writer.write_binding(scope, "ltq1", "ABOUT", "content", str(content_id), qualifier="planning notes")
+    writer.write_binding(scope, name, "IS", "text", what_it_is, permanence="INTRINSIC")
+    writer.write_binding(scope, name, "ABOUT", "content", str(content_id), qualifier=summary)
 
     # Check if a name already exists
-    existing = writer.find_name(scope, "ltq")  # returns list of matching names
+    existing = writer.find_name(scope, name_prefix)  # returns list of matching names
 
 Also usable as CLI:
-    python write_binding.py --scope <scope> --name ltq1 --rel IS --target-type text --target-ref "Q1 plan"
+    python write_binding.py --scope <scope> --name <name> --rel IS --target-type text --target-ref "<what it is>"
 """
 import re
 import argparse

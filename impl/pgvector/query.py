@@ -2,31 +2,7 @@
 """
 Query abra bindings and content.
 
-Usage:
-    # Who do I know? (search names and qualifiers)
-    .venv/bin/python pgvector/query.py who credentials
-    .venv/bin/python pgvector/query.py who "workforce dev"
-
-    # What do I know about a name?
-    .venv/bin/python pgvector/query.py about ltq1
-
-    # Who did I meet in a time range?
-    .venv/bin/python pgvector/query.py when 2025-10
-    .venv/bin/python pgvector/query.py when 2025-07 2025-08
-
-    # Search note content
-    .venv/bin/python pgvector/query.py search "cooperative"
-    .venv/bin/python pgvector/query.py search "donor advised"
-
-    # Who is related to a name/topic?
-    .venv/bin/python pgvector/query.py related ltq1
-
-    # List ABOUT bindings in the scope by date
-    .venv/bin/python pgvector/query.py refs
-
-    # Dump all names (with optional prefix filter)
-    .venv/bin/python pgvector/query.py names
-    .venv/bin/python pgvector/query.py names lt
+Usage: run `abra --help` (the impl/abra wrapper) or `python query.py --help`.
 """
 import os
 import sys
@@ -154,7 +130,7 @@ def cmd_about(args):
 def cmd_when(args):
     """Find contacts by date range."""
     start = args.start
-    # If just a month like "2025-10", expand
+    # If just a month (YYYY-MM), expand
     if len(start) == 7:
         start_date = start + "-01"
         if args.end:
@@ -431,8 +407,8 @@ def _resolve_cat_path(writer, path):
 
     The first segment must match an existing registered label (the path's
     root). Each subsequent segment is created as a child of its parent
-    with the accumulated label (e.g. 'untp/2026' under 'untp', then
-    'untp/2026/june' under 'untp/2026'). Returns the leaf catcode.
+    with the accumulated label (e.g. '<root>/<a>' under '<root>', then
+    '<root>/<a>/<b>' under '<root>/<a>'). Returns the leaf catcode.
     """
     parts = [p for p in path.strip('/').split('/') if p]
     if not parts:
@@ -492,7 +468,7 @@ def _resolve_catcode(writer, args):
     if sys.stdin.isatty():
         sys.stderr.write(
             "No category given. Enter a path under a registered top-level "
-            "(e.g. 'untp/2026/june') or a catcode (e.g. a00105).\n"
+            "(<root>/<topic>) or a catcode.\n"
             "Pass --cat or --catcode next time to skip this prompt.\n"
         )
         try:
@@ -517,7 +493,7 @@ def _resolve_catcode(writer, args):
             return entry
         return _resolve_cat_path(writer, entry)
     sys.stderr.write(
-        "No category given. Pass --cat <path> (e.g. 'untp/2026/june') "
+        "No category given. Pass --cat <root>/<topic> "
         "or --catcode <code>.\n"
         "The CLI does not silently default.\n"
     )
@@ -676,28 +652,22 @@ HELP_TEXT = """
 abra — query and write names, notes, and relationships
 
 Read commands:
-  abra who "credentials"         Find names by topic keyword
-  abra about ltq1                Everything known about a name
-  abra about lt                  Partial match works too
-  abra when 2025-10              Who did I meet that month?
-  abra when 2025-07 2025-09      Date range (July thru August)
-  abra search "cooperative"      Semantic search across all notes
-  abra related ltq1              Who has a relationship to X?
+  abra who <keyword>             Names whose ABOUT qualifier (or note) matches
+  abra about <name>              Everything known about a name (partial match)
+  abra when YYYY-MM [YYYY-MM]    ABOUT bindings dated in that month / range
+  abra search "<words>"          Semantic search across all notes
+  abra related <name>            RELATED bindings mentioning a name or topic
   abra refs                      List ABOUT bindings in the scope by date
-  abra names                     List all names with context
-  abra names lt                  Filter names by prefix
-  abra hot                       List all hot tags (warm context)
-  abra hot ltq1                  Show hot tag definition
-  abra read ltq1                 Read full note content for a name
-  abra read 35                   Read content by ID number
+  abra names [prefix]            List names with context
+  abra hot [name]                List hot tags, or show one hot tag's definition
+  abra read <name|id>            Read full note content for a name or content ID
 
 Write commands:
-  abra store <name> "text" --cat <path>        Store content and bind to a name
-  abra store <name> -f file.txt --cat <path>   Store content from a file
-  abra bind <name> IS "Full Name" --cat <path> Create a binding
-  abra bind <name> RELATED target --qualifier "context" --cat <path>
-  abra hot set <name>            Mark as hot (expires in 30 days)
-  abra hot set <name> --days 90  Custom expiry
+  abra store <name> "<text>" --cat <root>/<topic>     Store content and bind to a name
+  abra store <name> -f <file> --cat <root>/<topic>    Store content from a file
+  abra bind <name> IS "<what it is>" --cat <root>/<topic>
+  abra bind <name> RELATED <target> --qualifier "<why>" --cat <root>/<topic>
+  abra hot set <name> [--days N]  Mark as hot (default 30 days)
   abra hot unset <name>          Remove hot tag
 
 Maintenance:
@@ -782,8 +752,8 @@ def main():
     p_store.add_argument('content', nargs='?', help='Content text (or use -f)')
     p_store.add_argument('-f', '--file', help='Read content from file')
     p_store.add_argument('--qualifier', help='Qualifier for the ABOUT binding')
-    p_store.add_argument('--cat', help='Category path under a registered root, e.g. untp/2026/june. Missing segments auto-create.')
-    p_store.add_argument('--catcode', help='Use an existing catcode directly, e.g. a00105')
+    p_store.add_argument('--cat', help='Category path <root>/<topic>; root must be registered, missing segments auto-create.')
+    p_store.add_argument('--catcode', help='Use an existing catcode directly')
     p_store.add_argument('--date', help='Source date (YYYY-MM-DD) for the timeline (abra when). Use "today" for today.')
     p_store.add_argument('--writer', **writer_kw)
 
@@ -794,8 +764,8 @@ def main():
     p_bind.add_argument('target', help='Target value')
     p_bind.add_argument('--target-type', help='Target type: text, content, uri, name (default: text)')
     p_bind.add_argument('--qualifier', help='Qualifier text')
-    p_bind.add_argument('--cat', help='Category path under a registered root, e.g. untp/2026/june. Missing segments auto-create.')
-    p_bind.add_argument('--catcode', help='Use an existing catcode directly, e.g. a00105')
+    p_bind.add_argument('--cat', help='Category path <root>/<topic>; root must be registered, missing segments auto-create.')
+    p_bind.add_argument('--catcode', help='Use an existing catcode directly')
     p_bind.add_argument('--writer', **writer_kw)
 
     sub.add_parser('reindex', help='Embed any content blob that has no embedding')

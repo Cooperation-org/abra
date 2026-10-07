@@ -7,45 +7,27 @@ IMPORTANT: No PII (email, phone, address) in the binding store. Contact details 
 Staging file format (array of entries):
 [
   {
-    "source_file": "1-20-26-q1-plan.txt",
-    "content": "full text of the note (PII stripped)...",
-    "note_date": "2026-01-20",
+    "source_file": "<file name>",
+    "content": "<note text, PII stripped>",
+    "note_date": "<YYYY-MM-DD or null>",
     "bindings": [
       {
         "scope": "<scope>",
-        "name": "ltq1",
+        "name": "<name>",
         "relationship": "IS",
         "target_type": "text",
-        "target_ref": "Q1 plan",
+        "target_ref": "<what it is>",
         "qualifier": null,
         "permanence": "INTRINSIC"
       },
       {
         "scope": "<scope>",
-        "name": "ltq1",
+        "name": "<name>",
         "relationship": "ABOUT",
         "target_type": "content",
         "target_ref": "__CONTENT_ID__",
-        "qualifier": "planning notes",
+        "qualifier": "<short summary>",
         "permanence": "CURRENT"
-      },
-      {
-        "scope": "<scope>",
-        "name": "ltq1",
-        "relationship": "HAS",
-        "target_type": "text",
-        "target_ref": "contact:pending-crm",
-        "qualifier": null,
-        "permanence": "CURRENT"
-      },
-      {
-        "scope": "<scope>",
-        "name": "lt",
-        "relationship": "RELATED",
-        "target_type": "content",
-        "target_ref": "__CONTENT_ID__",
-        "qualifier": "contact - currency design",
-        "permanence": "EPHEMERAL"
       }
     ]
   }

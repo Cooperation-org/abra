@@ -17,13 +17,13 @@ Usage:
     )
 
     # Query
-    bindings = store.bindings_for("ltq1")
-    results = store.search_content("cooperative governance")
+    bindings = store.bindings_for(name)
+    results = store.search_content(query)
     hot = store.hot_tags()
 
     # Write
-    store.write_binding("my-scope", "ltq1", "IS", "text", "Q1 plan")
-    cid = store.store_content("notes/meeting.md", "scrubbed text...")
+    store.write_binding(scope, name, "IS", "text", what_it_is)
+    cid = store.store_content(source_file, scrubbed_text)
 
     # Override behavior by subclassing
     class MyStore(AbraStore):
