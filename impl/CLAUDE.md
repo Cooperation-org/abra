@@ -15,6 +15,7 @@ learnings.md in this directory captures what we learn across implementations.
 - **`.venv/`** — Python virtual environment shared by all impl code. Run with `.venv/bin/python`.
 - **`.env`** — all secrets and connection config (PG creds, ODOO_API_KEY). Gitignored. Never commit. Template: `pgvector/.env.example`.
 - **Backend** — PostgreSQL + pgvector by default (PG_* vars). `ABRA_DATABASE_URL=sqlite:///~/.abra/abra.db` uses a local SQLite file instead (CLI, writer, setup_db). The view server, signals, and migrations are PostgreSQL only. See `pgvector/db.py`.
+- **Embed service** — `pgvector/embed_server.py` keeps the embedding model loaded on a user-only Unix socket (`~/.abra/embed.sock`) so `abra store`/`search` stay fast; without it they load the model in-process (seconds). macOS login agent: `./install-embed-service.sh`.
 - **Default scope** — `$ABRA_SCOPE`, else `scope:` in `~/.abra/sources.yaml`, else the login name. See `pgvector/instance.py`.
 - **`import_linkedin.py`** — bulk import LinkedIn/Google contacts to Odoo + pgvector. Dry run by default, `--confirm` to write.
 

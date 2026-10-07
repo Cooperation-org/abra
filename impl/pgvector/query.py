@@ -34,12 +34,8 @@ import argparse
 from datetime import datetime
 
 import db
+import embedding
 from instance import default_scope, writer_uri
-
-
-def get_model():
-    from write_binding import get_model as _get_model
-    return _get_model()
 
 
 def cmd_who(args):
@@ -208,7 +204,7 @@ def cmd_search(args):
     has_embeddings = cur.fetchone()[0]
 
     if has_embeddings:
-        rows = d.nearest_content(cur, get_model().encode(term).tolist(), limit)
+        rows = d.nearest_content(cur, embedding.encode(term), limit)
         if rows:
             # Batch-fetch associated names + display names for all content IDs
             cids = [str(r[0]) for r in rows]
@@ -585,10 +581,9 @@ def cmd_reindex(args):
         print("Nothing to reindex: every content blob has an embedding.")
         return
     print(f"{len(rows)} blobs without an embedding")
-    model = get_model()
     for n, (cid, text) in enumerate(rows, 1):
         cur.execute("UPDATE content SET embedding = %s WHERE id = %s",
-                    (d.vector(model.encode(text).tolist()), cid))
+                    (d.vector(embedding.encode(text)), cid))
         if n % 100 == 0:
             conn.commit()
             print(f"  {n}/{len(rows)}")

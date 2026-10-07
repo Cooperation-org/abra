@@ -19,11 +19,11 @@ Usage from a processing session:
 Also usable as CLI:
     python write_binding.py --scope <scope> --name ltq1 --rel IS --target-type text --target-ref "Q1 plan"
 """
-import os
 import re
 import argparse
 
 import db
+import embedding
 from instance import default_writer_uri
 
 PII_PATTERNS = [
@@ -40,22 +40,6 @@ def check_pii(text):
     return False
 
 
-_model = None
-
-
-def get_model():
-    """Lazy-load the sentence-transformers embedding model."""
-    global _model
-    if _model is None:
-        os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
-        os.environ.setdefault("HF_HUB_VERBOSITY", "error")
-        os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
-        os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
-        from sentence_transformers import SentenceTransformer
-        _model = SentenceTransformer(os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2"))
-    return _model
-
-
 def embed(text):
     """Embedding for a content blob as a list of floats. Returns None when the
     model is unavailable (a service identity without sentence-transformers, no
@@ -63,7 +47,7 @@ def embed(text):
     if not text or not text.strip():
         return None
     try:
-        return get_model().encode(text).tolist()
+        return embedding.encode(text)
     except Exception as e:
         print(f"  warning: no embedding ({e}); run `abra reindex` to make it searchable")
         return None
