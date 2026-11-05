@@ -73,6 +73,7 @@ def parse_connections(path):
                 "title": (row.get("Position") or "").strip() or None,
                 "phone": None,
                 "linkedin_url": (row.get("URL") or "").strip() or None,
+                "connected_on": (row.get("Connected On") or "").strip() or None,
                 "source": "linkedin",
             })
     return contacts
@@ -211,7 +212,12 @@ def do_import(contacts, dry_run=True, scope=DEFAULT_SCOPE, catcode=DEFAULT_CATCO
         try:
             # Check if contact already exists in Odoo (by email)
             existing = None
-            if c["email"]:
+            if c["linkedin_url"]:
+                handle = c["linkedin_url"].rstrip("/").rsplit("/", 1)[-1]
+                found = crm._execute("res.partner", "search", ["|", ("website", "ilike", f"linkedin.com/in/{handle}"), ("comment", "ilike", f"linkedin.com/in/{handle}")])
+                if found:
+                    existing = found[0]
+            if not existing and c["email"]:
                 found = crm.find_contact(email=c["email"])
                 if found:
                     existing = found[0]
@@ -220,6 +226,10 @@ def do_import(contacts, dry_run=True, scope=DEFAULT_SCOPE, catcode=DEFAULT_CATCO
                 skipped += 1
                 continue
 
+            notes = f"Imported from {c['source']}. Title: {c.get('title') or 'n/a'}"
+            if c.get("connected_on"):
+                notes += f"\nLinkedIn connected: {c['connected_on']}"
+
             # Create in Odoo (PII goes here)
             odoo_id = crm.create_contact(
                 name=c["name"],
@@ -227,10 +237,13 @@ def do_import(contacts, dry_run=True, scope=DEFAULT_SCOPE, catcode=DEFAULT_CATCO
                 phone=c["phone"],
                 company=c["company"],
                 catcode=catcode,
-                notes=f"Imported from {c['source']}. Title: {c.get('title') or 'n/a'}",
+                notes=notes,
             )
             if isinstance(odoo_id, list):
                 odoo_id = odoo_id[0]
+            extra = {k: v for k, v in (("website", c["linkedin_url"]), ("function", c.get("title"))) if v}
+            if extra:
+                crm.update_contact(odoo_id, **extra)
 
             # Create bindings in pgvector (no PII)
             if c["pet_name"]:
